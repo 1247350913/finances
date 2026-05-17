@@ -1,0 +1,110 @@
+.centerPage {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 20px;
+}
+
+.flowPage {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 48px;
+  padding: 64px 20px;
+}
+
+.brandTitle {
+  font-family: var(--serif);
+  font-size: 34px;
+  line-height: 1;
+  margin: 0 0 20px;
+  font-weight: 400;
+}
+
+.smallHeading {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 28px;
+}
+
+.flowHeading {
+  font-family: var(--sans);
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 700;
+  margin: 0;
+  max-width: 470px;
+}
+
+.formStack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 11px;
+}
+
+.signUpStack {
+  width: 100%;
+  display: grid;
+  grid-template-columns: max-content minmax(220px, 420px);
+  align-items: center;
+  row-gap: 22px;
+  column-gap: 18px;
+}
+
+.label {
+  margin: 0;
+}
+
+.buttonRow {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+}
+
+.textLinks {
+  margin-top: 20px;
+  text-align: center;
+  display: grid;
+  gap: 14px;
+  font-family: var(--serif);
+  font-size: 14px;
+}
+
+.textLinks a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.inlineForm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.successBox {
+  width: min(208px, calc(100vw - 42px));
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 37px 18px;
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 560px) {
+  .flowHeading {
+    font-size: 19px;
+    text-align: center;
+  }
+
+  .inlineForm {
+    flex-direction: column;
+  }
+}

@@ -1,0 +1,101 @@
+.overviewShell {
+  width: min(670px, calc(100vw - 32px));
+  min-height: 100vh;
+  margin: 0 auto;
+  background: #fff;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.subnav {
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  align-items: center;
+  justify-items: center;
+  font-family: var(--serif);
+  font-size: 12px;
+}
+
+.subnav a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.content {
+  padding: 28px 90px 48px;
+  font-family: var(--serif);
+  color: var(--ink);
+}
+
+.chartPlaceholder {
+  height: 168px;
+  background: #cfcfcf;
+  border: 1px solid #c3c3c3;
+  margin-bottom: 26px;
+  position: relative;
+}
+
+.chartTitle {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 7px;
+  font-family: var(--sans);
+}
+
+.gridLines {
+  position: absolute;
+  inset: 30px 12px 22px 34px;
+  background: repeating-linear-gradient(to bottom, transparent 0, transparent 12px, #aaaaaa 13px),
+              linear-gradient(to right, transparent 0, transparent 49%, #bdbdbd 50%, transparent 51%);
+}
+
+.noteBlock {
+  font-size: 16px;
+  line-height: 1.08;
+}
+
+.noteBlock p {
+  margin: 0 0 24px;
+}
+
+.tableBlock {
+  margin-top: 42px;
+  text-align: center;
+}
+
+.tableBlock h2 {
+  font-size: 16px;
+  font-weight: 400;
+  margin: 0 0 22px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  color: #c9c9c9;
+  font-weight: 400;
+}
+
+td, th {
+  padding: 14px 12px;
+  text-align: center;
+}
+
+td:first-child, th:first-child {
+  text-align: left;
+}
+
+@media (max-width: 650px) {
+  .content {
+    padding: 24px 24px 42px;
+  }
+}

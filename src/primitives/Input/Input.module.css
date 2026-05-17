@@ -1,0 +1,64 @@
+.field {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 22px;
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field:has(.label) .inputWrap {
+  min-width: 208px;
+}
+
+.label {
+  min-width: 62px;
+  line-height: 1.35;
+}
+
+.inputWrap {
+  height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  background: #fff;
+}
+
+.icon {
+  width: 15px;
+  height: 15px;
+  color: var(--ink);
+  flex: none;
+}
+
+.eye {
+  width: 13px;
+  height: 13px;
+  margin-left: auto;
+  flex: none;
+}
+
+.inputWrap input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  padding: 0 8px;
+  background: transparent;
+  font: inherit;
+}
+
+@media (max-width: 560px) {
+  .field {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .label {
+    min-width: 0;
+  }
+}

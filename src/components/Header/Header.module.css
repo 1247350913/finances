@@ -1,0 +1,40 @@
+.header {
+  height: 88px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(32px, 13vw, 165px);
+  background: #fff;
+}
+
+.logo {
+  font-family: var(--serif);
+  font-size: 32px;
+  line-height: 1;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.languageButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  border: 0;
+  background: transparent;
+  font-family: var(--serif);
+  font-size: 21px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.chevron {
+  font-size: 16px;
+  transform: translateY(-3px);
+}
+
+.flag {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
