@@ -1,15 +1,56 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ScreenShell } from "../../components/ScreenShell";
 import { AuthCard } from "../../components/AuthCard";
 import { Input } from "../../primitives/Input";
 import { Button } from "../../primitives/Button";
+import { supabase } from "../../lib/supabaseClient";
 import styles from "./Auth.module.css";
 
 export function Login() {
-  
+  const navigate = useNavigate();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const emailTrimmed = email.trim();
+  const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed), [emailTrimmed]);
+  const formValid = emailValid && password.length > 0 && !loading;
+
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    if (!formValid) return;
+
+    try {
+      setLoading(true);
+      setErrorMessage(null);
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailTrimmed,
+        password,
+      });
+
+      if (error) {
+        const message = error.message.toLowerCase();
+        if (error.status === 400 || message.includes("invalid login")) {
+          throw new Error("Incorrect email or password.");
+        }
+
+        throw error;
+      }
+
+      navigate("/entry");
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err.message ?? "Could not sign in.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <ScreenShell>
@@ -17,11 +58,16 @@ export function Login() {
         <AuthCard>
           <h1 className={styles.brandTitle}>finances</h1>
           <h2 className={styles.smallHeading}>Sign In</h2>
-          <form className={styles.formStack}>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} showEye />
-            <div className={styles.buttonRow}><Button type="submit">Sign In</Button></div>
+          <form className={styles.formStack} onSubmit={handleSubmit}>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)}/>
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)}/>
+            <div className={styles.buttonRow}>
+              <Button type="submit" text={loading ? "Signing In..." : "Sign In"} disabled={!formValid} />
+            </div>
           </form>
+
+          {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
+
           <div className={styles.textLinks}>
             <Link to="/signup">Don’t have an account? Sign Up here.</Link>
             <Link to="/forgot">Forgot your username or password?</Link>

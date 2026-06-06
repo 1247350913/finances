@@ -11,7 +11,7 @@ export default function ForgotCredentialsPage() {
         <h1 className={styles.flowHeading}>First, Enter The Email You Used For<br />Sign Up To Verify Your Account</h1>
         <AuthCard wide>
           <form className={styles.formStack}>
-            <Input type="email" icon="user" />
+            <Input type="email"/>
             <div className={styles.buttonRow}><Button type="submit">Send Verification Code</Button></div>
           </form>
         </AuthCard>

@@ -3,8 +3,8 @@ import { Eye, EyeOff, LockKeyhole, UserRound } from "lucide-react";
 import styles from "./Input.module.css";
 
 type Props = {
-  type: "username" | "email" | "password";
-  value: string | null;
+  type: "username" | "email" | "password" | "code entry";
+  value: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 };
 

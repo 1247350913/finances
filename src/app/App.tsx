@@ -4,7 +4,6 @@ import { Login, SignUp } from "../screens/Auth";
 import { Expenses, ManageExpenses, Parser, Statements } from "../screens/Expenses";
 import { Entry } from "../screens/Entry";
 import { Overview } from "../screens/Overview";
-import "../styles/global.css";
 
 export function App() {
   return (
