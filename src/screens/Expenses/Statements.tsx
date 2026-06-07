@@ -1,5 +1,5 @@
+import { ExpensesView } from "./Expenses";
+
 export function Statements() {
-  return (
-      <h2>Statements</h2>
-  );
+  return <ExpensesView mode="statements" />;
 }

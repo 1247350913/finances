@@ -6,7 +6,7 @@ type Props = {
   homeLink?: string;
 };
 
-export function Header({ homeLink = "/home" }: Props) {
+export function Header({ homeLink = "/" }: Props) {
   return (
     <header className={styles.header}>
       <Link className={styles.logo} to={homeLink}>finances</Link>

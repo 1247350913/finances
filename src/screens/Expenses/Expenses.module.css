@@ -1,0 +1,375 @@
+.pageShell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  background: #f3f3f3;
+}
+
+.main {
+  width: min(1280px, calc(100vw - 40px));
+  margin: 0 auto;
+  padding: 18px 0 24px;
+}
+
+.subnav {
+  height: 56px;
+  border: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 72px 1fr 1fr 72px;
+  align-items: center;
+  justify-items: center;
+  padding: 0 14px;
+  background: #f8f8f8;
+}
+
+.subnav a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.backLink {
+  justify-self: start;
+  margin-left: 8px;
+  font-size: 20px;
+}
+
+.subnavLink {
+  justify-self: center;
+  font-family: var(--serif);
+  font-size: 24px;
+}
+
+.profileLink {
+  justify-self: end;
+  margin-right: 8px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #efefef;
+}
+
+.profileIcon {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.body {
+  border: 1px solid var(--border);
+  border-top: 0;
+  background: #f8f8f8;
+  min-height: 640px;
+  padding: 30px 84px 46px;
+}
+
+.bannerRow {
+  min-height: 34px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.messageWrap {
+  min-height: 20px;
+}
+
+.error,
+.status {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 13px;
+}
+
+.error {
+  color: #b83333;
+}
+
+.status {
+  color: #206c2e;
+}
+
+.manageButton {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 7px 14px;
+}
+
+.cardsGrid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 22px;
+  align-items: start;
+}
+
+.accountCard,
+.addTile {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #dedede;
+  min-height: 112px;
+  padding: 14px 16px;
+}
+
+.accountCard {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.cardTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardName,
+.cardDigits {
+  margin: 0;
+  font-family: var(--serif);
+}
+
+.cardName {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.cardDigits {
+  margin-top: 4px;
+  font-size: 20px;
+  color: #4d4d4d;
+}
+
+.cardBadge {
+  width: 58px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid #c7c7c7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f2f2f2, #c4c4c4);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  color: #4f4f4f;
+  overflow: hidden;
+}
+
+.cardBadgeImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cardActions {
+  display: flex;
+  gap: 22px;
+}
+
+.cardActions a {
+  color: var(--ink);
+  text-decoration: underline;
+  font-family: var(--serif);
+  font-size: 32px;
+}
+
+.addTile {
+  border-style: dashed;
+  color: #6c6c6c;
+  font-family: var(--serif);
+  font-size: 34px;
+  cursor: pointer;
+}
+
+.emptyState {
+  margin: 28px 0 0;
+  font-family: var(--serif);
+  font-size: 28px;
+  color: #777;
+}
+
+.panel {
+  margin-top: 30px;
+}
+
+.panelHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.panelHead h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 34px;
+  font-weight: 400;
+}
+
+.panelHead button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 7px 14px;
+}
+
+.codeBlock {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 18px;
+  white-space: pre-wrap;
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.3;
+}
+
+.monthGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(100px, 1fr));
+  gap: 22px;
+}
+
+.monthTile {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  min-height: 120px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.monthTile span {
+  font-family: var(--serif);
+  font-size: 24px;
+}
+
+.statementFileLink {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: underline;
+  word-break: break-word;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.modal {
+  width: min(460px, calc(100vw - 40px));
+  border-radius: 28px;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 24px;
+  display: grid;
+  gap: 14px;
+}
+
+.modal label {
+  display: grid;
+  gap: 4px;
+  font-family: var(--serif);
+  font-size: 24px;
+}
+
+.modal input {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  height: 36px;
+  padding: 0 10px;
+  font-family: var(--sans);
+  font-size: 14px;
+}
+
+.modal input[type="file"] {
+  height: auto;
+  padding: 6px 8px;
+  background: #f7f7f7;
+}
+
+.downloadTemplateLink {
+  font-family: var(--serif);
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.fieldHint {
+  margin: -6px 0 0;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: #5f5f5f;
+}
+
+.modalActions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modalActions button {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: #f7f7f7;
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+
+@media (max-width: 1000px) {
+  .subnavLink {
+    font-size: 20px;
+  }
+
+  .body {
+    padding: 20px 20px 32px;
+  }
+
+  .cardName {
+    font-size: 24px;
+  }
+
+  .cardDigits {
+    font-size: 16px;
+  }
+
+  .cardActions a {
+    font-size: 24px;
+  }
+
+  .addTile,
+  .emptyState,
+  .panelHead h2,
+  .monthTile span,
+  .modal label,
+  .codeBlock {
+    font-size: 20px;
+  }
+
+  .monthGrid {
+    grid-template-columns: repeat(3, minmax(100px, 1fr));
+  }
+}

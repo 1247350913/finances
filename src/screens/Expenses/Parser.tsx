@@ -1,5 +1,5 @@
+import { ExpensesView } from "./Expenses";
+
 export function Parser() {
-  return (
-  <h2>Parser</h2>
-  );
+  return <ExpensesView mode="parser" />;
 }

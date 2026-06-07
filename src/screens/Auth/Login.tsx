@@ -43,7 +43,7 @@ export function Login() {
         throw error;
       }
 
-      navigate("/entry");
+      navigate("/home");
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not sign in.");
