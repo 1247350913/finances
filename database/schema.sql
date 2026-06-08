@@ -62,6 +62,7 @@ create table if not exists public.entry_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
   start_year integer,
   end_year integer,
+  overview_widgets jsonb,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   check (
@@ -82,6 +83,7 @@ alter table public.accounts add column if not exists card_image_data_url text;
 alter table public.accounts add column if not exists parser_file_name text;
 alter table public.accounts add column if not exists parser_source text;
 alter table public.accounts add column if not exists archived boolean not null default false;
+alter table public.entry_settings add column if not exists overview_widgets jsonb;
 
 alter table public.profiles enable row level security;
 alter table public.accounts enable row level security;

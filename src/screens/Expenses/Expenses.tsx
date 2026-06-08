@@ -1,4 +1,4 @@
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Footer } from "../../components/Footer";
 import { ASSETS } from "../../lib";
@@ -31,9 +31,15 @@ type ParsedExpenseItem = {
   amount: number;
 };
 
+type ParsedExpenseGroup = {
+  description: string;
+  amount: number;
+  transactions: ParsedExpenseItem[];
+};
+
 type ParsedStatementSummary = {
   total: number;
-  items: ParsedExpenseItem[];
+  groups: ParsedExpenseGroup[];
 };
 
 type AddAccountForm = {
@@ -76,6 +82,11 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   const [managePanel, setManagePanel] = useState<"parser" | "statements" | null>(null);
   const [manageParserTab, setManageParserTab] = useState<"current" | "example">("current");
   const [isManageParserSaving, setIsManageParserSaving] = useState(false);
+  const [isParserTestOpen, setIsParserTestOpen] = useState(false);
+  const [parserTestFile, setParserTestFile] = useState<File | null>(null);
+  const [isParserTestRunning, setIsParserTestRunning] = useState(false);
+  const [parserTestResult, setParserTestResult] = useState<ParsedStatementSummary | null>(null);
+  const [parserTestError, setParserTestError] = useState<string | null>(null);
   const [manageStatements, setManageStatements] = useState<AccountStatement[]>([]);
   const [isManageStatementSaving, setIsManageStatementSaving] = useState(false);
   const [manageStatementDate, setManageStatementDate] = useState("");
@@ -87,6 +98,14 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   const [editParserFile, setEditParserFile] = useState<File | null>(null);
   const [statementDate, setStatementDate] = useState("");
   const [statementFile, setStatementFile] = useState<File | null>(null);
+  const [startMonth, setStartMonth] = useState("");
+  const [endMonth, setEndMonth] = useState("");
+  const [isAccountsFilterOpen, setIsAccountsFilterOpen] = useState(false);
+  const [isDateFilterOpen, setIsDateFilterOpen] = useState(false);
+  const [isVendorFilterOpen, setIsVendorFilterOpen] = useState(false);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
+  const [vendorSearch, setVendorSearch] = useState("");
   const [addForm, setAddForm] = useState<AddAccountForm>(INITIAL_ADD_FORM);
   const [cardImageFile, setCardImageFile] = useState<File | null>(null);
   const [parserFile, setParserFile] = useState<File | null>(null);
@@ -147,6 +166,13 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
 
     void loadStatements(selectedAccount.id);
   }, [mode, selectedAccount]);
+
+  useEffect(() => {
+    setIsParserTestOpen(false);
+    setParserTestFile(null);
+    setParserTestResult(null);
+    setParserTestError(null);
+  }, [manageActiveAccountId, managePanel]);
 
   async function loadAccounts() {
     try {
@@ -430,6 +456,8 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       }
 
       const fileDataUrl = await readFileAsDataUrl(statementFile);
+      const parsedSummary = await parseStatementFile(statementFile, fileDataUrl, selectedAccount.parser_source ?? undefined);
+      const parsed_result = JSON.stringify(parsedSummary);
 
       const statementPayload = {
         user_id: userData.user.id,
@@ -437,6 +465,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
         statement_date: statementDateValue,
         file_name: statementFile.name,
         file_data_url: fileDataUrl,
+        parsed_result,
       };
 
       const { error } = await supabase
@@ -485,6 +514,40 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setErrorMessage(err.message ?? "Could not replace parser file.");
     } finally {
       setIsManageParserSaving(false);
+    }
+  }
+
+  async function handleRunManageParserTest() {
+    if (!activeManageAccount) return;
+    if (!activeManageAccount.parser_source) {
+      setParserTestError("Upload a parser file first.");
+      return;
+    }
+    if (!parserTestFile) {
+      setParserTestError("Choose a statement file first.");
+      return;
+    }
+
+    try {
+      setIsParserTestRunning(true);
+      setParserTestError(null);
+      setStatusMessage(null);
+
+      const fileDataUrl = await readFileAsDataUrl(parserTestFile);
+      const parsedSummary = await runCustomParserTest(
+        activeManageAccount.parser_source,
+        parserTestFile.name,
+        fileDataUrl
+      );
+
+      setParserTestResult(parsedSummary);
+      setStatusMessage("Parser test complete.");
+    } catch (err: any) {
+      console.error(err);
+      setParserTestResult(null);
+      setParserTestError(err.message ?? "Could not run parser test.");
+    } finally {
+      setIsParserTestRunning(false);
     }
   }
 
@@ -562,8 +625,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       }
 
       const fileDataUrl = await readFileAsDataUrl(manageStatementFile);
-      const fileText = await readFileAsText(manageStatementFile).catch(() => "");
-      const parsedSummary = parseExpensesFromText(fileText);
+      const parsedSummary = await parseStatementFile(manageStatementFile, fileDataUrl, activeManageAccount.parser_source ?? undefined);
       const parsed_result = JSON.stringify(parsedSummary);
 
       const statementPayload = {
@@ -595,48 +657,110 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   }
 
   const readSummary = useMemo(() => {
-    const monthsSet = new Set<string>();
-    const byAccountMonth = new Map<string, Map<string, ParsedStatementSummary>>();
+    const baseMonthsSet = new Set<string>();
+    const baseByAccountMonth = new Map<string, Map<string, ParsedStatementSummary>>();
 
     for (const statement of allStatements) {
       const monthKey = statement.statement_date.slice(0, 7);
-      monthsSet.add(monthKey);
+      baseMonthsSet.add(monthKey);
 
-      const parsed = parseStatementExpenseSummary(statement.file_name, statement.file_data_url);
+      const parsed = parseStatementExpenseSummary(statement);
       if (!parsed) continue;
 
-      const accountMap = byAccountMonth.get(statement.account_id) ?? new Map<string, ParsedStatementSummary>();
+      const accountMap = baseByAccountMonth.get(statement.account_id) ?? new Map<string, ParsedStatementSummary>();
       const existing = accountMap.get(monthKey);
 
       if (!existing) {
         accountMap.set(monthKey, parsed);
       } else {
+        const mergedGroups = mergeGroupedExpenses(existing.groups, parsed.groups);
         accountMap.set(monthKey, {
-          total: existing.total + parsed.total,
-          items: [...existing.items, ...parsed.items],
+          total: mergedGroups.reduce((sum, item) => sum + item.amount, 0),
+          groups: mergedGroups,
         });
       }
 
-      byAccountMonth.set(statement.account_id, accountMap);
+      baseByAccountMonth.set(statement.account_id, accountMap);
     }
 
-    const months = [...monthsSet].sort();
+    const vendorNamesSet = new Set<string>();
+    for (const accountMap of baseByAccountMonth.values()) {
+      for (const summary of accountMap.values()) {
+        for (const group of summary.groups) {
+          vendorNamesSet.add(group.description);
+        }
+      }
+    }
+
+    const visibleAccounts = selectedAccountIds.length > 0
+      ? accounts.filter((account) => selectedAccountIds.includes(account.id))
+      : accounts;
+
+    const vendorFilterSet = new Set(selectedVendors);
+    const filteredByAccountMonth = new Map<string, Map<string, ParsedStatementSummary>>();
+    const filteredMonthsSet = new Set<string>();
+
+    for (const account of visibleAccounts) {
+      const accountMap = baseByAccountMonth.get(account.id);
+      if (!accountMap) continue;
+
+      const nextAccountMap = new Map<string, ParsedStatementSummary>();
+      for (const [monthKey, summary] of accountMap.entries()) {
+        const groups = summary.groups.filter((group) => {
+          if (vendorFilterSet.size === 0) return true;
+          return vendorFilterSet.has(group.description);
+        });
+        if (groups.length === 0) continue;
+
+        nextAccountMap.set(monthKey, {
+          total: groups.reduce((sum, group) => sum + group.amount, 0),
+          groups,
+        });
+        filteredMonthsSet.add(monthKey);
+      }
+
+      if (nextAccountMap.size > 0) {
+        filteredByAccountMonth.set(account.id, nextAccountMap);
+      }
+    }
+
+    const months = [...filteredMonthsSet].sort().filter((month) => {
+      if (startMonth && month < startMonth) return false;
+      if (endMonth && month > endMonth) return false;
+      return true;
+    });
+
     const totalsByMonth = new Map<string, number>();
 
     for (const month of months) {
       let total = 0;
-      for (const account of accounts) {
-        total += byAccountMonth.get(account.id)?.get(month)?.total ?? 0;
+      for (const account of visibleAccounts) {
+        total += filteredByAccountMonth.get(account.id)?.get(month)?.total ?? 0;
       }
       totalsByMonth.set(month, total);
     }
 
+    const yearsSet = new Set<number>();
+    for (const month of months) {
+      yearsSet.add(parseInt(month.slice(0, 4), 10));
+    }
+    const years = [...yearsSet].sort();
+
     return {
+      visibleAccounts,
       months,
-      byAccountMonth,
+      years,
+      byAccountMonth: filteredByAccountMonth,
       totalsByMonth,
+      vendorNames: [...vendorNamesSet].sort((a, b) => a.localeCompare(b)),
     };
-  }, [accounts, allStatements]);
+  }, [accounts, allStatements, endMonth, selectedAccountIds, selectedVendors, startMonth]);
+
+  const visibleVendorOptions = useMemo(() => {
+    const query = vendorSearch.trim().toLowerCase();
+    if (!query) return readSummary.vendorNames;
+    return readSummary.vendorNames.filter((name) => name.toLowerCase().includes(query));
+  }, [readSummary.vendorNames, vendorSearch]);
 
   return (
     <div className={styles.pageShell}>
@@ -674,56 +798,222 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
 
           {mode === "read" && (
             <>
-              <div className={styles.readToolbar}>
-                <span className={styles.allTimePill}>All Time</span>
+              <div className={styles.readFiltersBar}>
+                <div className={styles.filterItem}>
+                  <button
+                    type="button"
+                    className={styles.filterButton}
+                    onClick={() => {
+                      setIsAccountsFilterOpen((prev) => !prev);
+                      setIsDateFilterOpen(false);
+                      setIsVendorFilterOpen(false);
+                    }}
+                  >
+                    Accounts{selectedAccountIds.length > 0 ? ` (${selectedAccountIds.length})` : ""}
+                  </button>
+                  {isAccountsFilterOpen && (
+                    <div className={styles.filterPanel}>
+                      {accounts.map((account) => {
+                        const checked = selectedAccountIds.includes(account.id);
+                        return (
+                          <label key={account.id} className={styles.filterCheckboxRow}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setSelectedAccountIds((prev) =>
+                                  checked ? prev.filter((id) => id !== account.id) : [...prev, account.id]
+                                );
+                              }}
+                            />
+                            <span>{account.name}</span>
+                          </label>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        className={styles.filterClearButton}
+                        onClick={() => setSelectedAccountIds([])}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.filterItem}>
+                  <button
+                    type="button"
+                    className={styles.filterButton}
+                    onClick={() => {
+                      setIsDateFilterOpen((prev) => !prev);
+                      setIsAccountsFilterOpen(false);
+                      setIsVendorFilterOpen(false);
+                    }}
+                  >
+                    Date Range{startMonth || endMonth ? " (active)" : ""}
+                  </button>
+                  {isDateFilterOpen && (
+                    <div className={styles.filterPanel}>
+                      <label className={styles.readToolbarControl}>
+                        <span>From</span>
+                        <input
+                          type="month"
+                          value={startMonth}
+                          onChange={(event) => setStartMonth(event.target.value)}
+                        />
+                      </label>
+                      <label className={styles.readToolbarControl}>
+                        <span>To</span>
+                        <input
+                          type="month"
+                          value={endMonth}
+                          onChange={(event) => setEndMonth(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className={styles.filterClearButton}
+                        onClick={() => {
+                          setStartMonth("");
+                          setEndMonth("");
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.filterItem}>
+                  <button
+                    type="button"
+                    className={styles.filterButton}
+                    onClick={() => {
+                      setIsVendorFilterOpen((prev) => !prev);
+                      setIsAccountsFilterOpen(false);
+                      setIsDateFilterOpen(false);
+                    }}
+                  >
+                    Vendor{selectedVendors.length > 0 ? ` (${selectedVendors.length})` : ""}
+                  </button>
+                  {isVendorFilterOpen && (
+                    <div className={styles.filterPanel}>
+                      <input
+                        className={styles.vendorSearchInput}
+                        type="text"
+                        placeholder="Search vendor"
+                        value={vendorSearch}
+                        onChange={(event) => setVendorSearch(event.target.value)}
+                      />
+                      <div className={styles.vendorOptionsList}>
+                        {visibleVendorOptions.map((vendor) => {
+                          const checked = selectedVendors.includes(vendor);
+                          return (
+                            <label key={vendor} className={styles.filterCheckboxRow}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setSelectedVendors((prev) =>
+                                    checked ? prev.filter((v) => v !== vendor) : [...prev, vendor]
+                                  );
+                                }}
+                              />
+                              <span>{vendor}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.filterClearButton}
+                        onClick={() => {
+                          setSelectedVendors([]);
+                          setVendorSearch("");
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {readSummary.months.length === 0 && !isLoading && (
+              {readSummary.years.length === 0 && !isLoading && (
                 <p className={styles.emptyState}>No statement months yet. Upload statements to see monthly breakdowns.</p>
               )}
 
-              {readSummary.months.length > 0 && (
-                <div className={styles.expenseScroller}>
-                  <div className={styles.expenseGrid} style={{ gridTemplateColumns: `160px repeat(${readSummary.months.length}, minmax(230px, 1fr))` }}>
-                    <div className={styles.gridHeaderCell}>
-                      {readSummary.months[0]?.slice(0, 4) ?? ""}
-                    </div>
-                    {readSummary.months.map((month) => (
-                      <div className={styles.gridHeaderCell} key={month}>{formatMonthLabel(month)}</div>
-                    ))}
+              {readSummary.years.map((year) => {
+                const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-                    <div className={styles.rowTitle}>total</div>
-                    {readSummary.months.map((month) => (
-                      <div className={styles.totalCell} key={`total-${month}`}>
-                        {formatAmount(readSummary.totalsByMonth.get(month) ?? 0)}
-                      </div>
-                    ))}
+                return (
+                  <div className={styles.readYearBlock} key={year}>
+                    <div className={styles.readYearLabel}>{year}</div>
+                    <div className={styles.readMonthGrid}>
+                      {MONTHS.map((monthNum) => {
+                        const monthKey = `${year}-${String(monthNum).padStart(2, "0")}`;
+                        const hasData = readSummary.months.includes(monthKey);
 
-                    {accounts.map((account) => (
-                      <Fragment key={`summary-${account.id}`}>
-                        <div className={styles.rowTitle}>{account.name}</div>
-                        {readSummary.months.map((month) => {
-                          const summary = readSummary.byAccountMonth.get(account.id)?.get(month);
-
-                          return (
-                            <div className={styles.accountMonthCell} key={`${account.id}-${month}`}>
-                              <div className={styles.accountMonthTotal}>{formatAmount(summary?.total ?? 0)}</div>
-                              <ul className={styles.accountItemList}>
-                                {(summary?.items ?? []).slice(0, 6).map((item, index) => (
-                                  <li key={`${account.id}-${month}-${index}`}>
-                                    <span>{item.description}</span>
-                                    <span>{formatAmount(item.amount)}</span>
-                                  </li>
-                                ))}
-                              </ul>
+                        return (
+                          <div
+                            className={`${styles.readMonthCell} ${!hasData ? styles.readMonthCellEmpty : ""}`}
+                            key={monthNum}
+                          >
+                            <div className={styles.readMonthHeader}>
+                              <div className={styles.readMonthLabel}>{MONTH_SHORT[monthNum - 1]}</div>
+                              <div className={styles.readMonthTotal}>
+                                {hasData ? formatAmount(readSummary.totalsByMonth.get(monthKey) ?? 0) : "-"}
+                              </div>
                             </div>
-                          );
-                        })}
-                      </Fragment>
-                    ))}
+
+                            {hasData && readSummary.visibleAccounts.map((account) => {
+                              const summary = readSummary.byAccountMonth.get(account.id)?.get(monthKey);
+                              if (!summary) return null;
+                              return (
+                                <div className={styles.readAccountBlock} key={account.id}>
+                                  <div className={styles.readAccountHeader}>
+                                    <div className={styles.readAccountName}>{account.name}</div>
+                                    <div className={styles.readAccountTotal}>{formatAmount(summary.total)}</div>
+                                  </div>
+                                  <ul className={styles.accountItemList}>
+                                    {summary.groups.slice(0, 4).map((group, index) => (
+                                      <li key={`${account.id}-${monthKey}-${index}`}>
+                                        {group.transactions.length > 1 ? (
+                                          <details className={styles.groupDetails}>
+                                            <summary className={styles.groupSummaryRow}>
+                                              <span className={styles.groupDescription}>{group.description}</span>
+                                              <span className={styles.groupAmount}>{formatAmount(group.amount)}</span>
+                                            </summary>
+                                            <ul className={styles.groupTransactionsList}>
+                                              {group.transactions.map((tx, txIndex) => (
+                                                <li key={`${account.id}-${monthKey}-${index}-${txIndex}`}>
+                                                  <span className={styles.groupDescription}>{tx.description}</span>
+                                                  <span className={styles.groupAmount}>{formatAmount(tx.amount)}</span>
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          </details>
+                                        ) : (
+                                          <div className={styles.groupSummaryRow}>
+                                            <span className={styles.groupDescription}>{group.description}</span>
+                                            <span className={styles.groupAmount}>{formatAmount(group.amount)}</span>
+                                          </div>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })}
             </>
           )}
 
@@ -834,20 +1124,30 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
                   </button>
                 </div>
 
-                <label className={styles.uploadNewButton}>
-                  {isManageParserSaving ? "Uploading..." : "Upload New"}
-                  <input
-                    type="file"
-                    accept=".py,.txt,.js,.ts"
-                    disabled={isManageParserSaving}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      void handleManageParserFileReplace(file);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
+                <div className={styles.parserWorkbenchActions}>
+                  <button
+                    type="button"
+                    className={styles.parserTestLaunchButton}
+                    onClick={() => setIsParserTestOpen(true)}
+                  >
+                    Test Parser
+                  </button>
+
+                  <label className={styles.uploadNewButton}>
+                    {isManageParserSaving ? "Uploading..." : "Upload New"}
+                    <input
+                      type="file"
+                      accept=".py,.txt,.js,.ts"
+                      disabled={isManageParserSaving}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        void handleManageParserFileReplace(file);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
 
               <pre className={styles.parserWorkbenchCode}>
@@ -934,6 +1234,110 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
                 );
               })}
             </section>
+          )}
+
+          {isParserTestOpen && activeManageAccount && (
+            <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Test parser">
+              <div className={`${styles.modal} ${styles.parserTestModal}`}>
+                <div className={styles.parserTestModalHeader}>
+                  <div>
+                    <h3 className={styles.parserTestModalTitle}>Test Parser</h3>
+                    <p className={styles.parserTestModalSubtitle}>
+                      Choose a statement file, run the parser, and inspect the cleaned results.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.parserTestModalClose}
+                    onClick={() => {
+                      setIsParserTestOpen(false);
+                      setParserTestFile(null);
+                      setParserTestResult(null);
+                      setParserTestError(null);
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className={styles.parserTestModalControls}>
+                  <label className={styles.parserTestFilePicker}>
+                    Choose Statement
+                    <input
+                      type="file"
+                      accept=".pdf,.csv,.txt,.json"
+                      disabled={isParserTestRunning}
+                      onChange={(event) => {
+                        setParserTestFile(event.target.files?.[0] ?? null);
+                        setParserTestResult(null);
+                        setParserTestError(null);
+                      }}
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    className={styles.parserTestRunButton}
+                    disabled={isParserTestRunning || !parserTestFile || !activeManageAccount.parser_source}
+                    onClick={() => void handleRunManageParserTest()}
+                  >
+                    {isParserTestRunning ? "Running..." : "Run Test"}
+                  </button>
+                </div>
+
+                <p className={styles.parserTestFileLabel}>
+                  {parserTestFile ? `Selected: ${parserTestFile.name}` : "No statement selected"}
+                </p>
+
+                {parserTestError && <p className={styles.error}>{parserTestError}</p>}
+
+                {parserTestResult && (
+                  <div className={styles.parserTestResultWrap}>
+                    <div className={styles.parserTestResultMeta}>
+                      <span>Total transactions sum</span>
+                      <strong>{formatAmount(parserTestResult.total)}</strong>
+                    </div>
+
+                    <table className={styles.parserTestTable}>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parserTestResult.groups.map((group, index) => {
+                          const isExpandable = group.transactions.length > 1;
+
+                          return (
+                            <tr key={`${group.description}-${index}`}>
+                              <td>
+                                {isExpandable ? (
+                                  <details className={styles.parserTestDetails}>
+                                    <summary>{group.description}</summary>
+                                    <ul className={styles.parserTestDetailList}>
+                                      {group.transactions.map((transaction, transactionIndex) => (
+                                        <li key={`${group.description}-${transactionIndex}`}>
+                                          <span>{transaction.description}</span>
+                                          <span>{formatAmount(transaction.amount)}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </details>
+                                ) : (
+                                  group.description
+                                )}
+                              </td>
+                              <td>{formatAmount(group.amount)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {isManageUploadOpen && (
@@ -1293,12 +1697,6 @@ function monthToStatementDate(value: string) {
   return `${value}-01`;
 }
 
-function formatMonthLabel(value: string) {
-  return new Date(`${value}-01T00:00:00`).toLocaleDateString(undefined, {
-    month: "long",
-  });
-}
-
 function formatAmount(value: number) {
   return value.toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -1306,41 +1704,179 @@ function formatAmount(value: number) {
   });
 }
 
-function parseStatementExpenseSummary(fileName: string, fileDataUrl: string): ParsedStatementSummary | null {
-  const lowerName = fileName.toLowerCase();
+async function parseStatementFile(file: File, fileDataUrl: string, parserSource?: string): Promise<ParsedStatementSummary> {
+  if (parserSource) {
+    const parsed = await runCustomParserTest(parserSource, file.name, fileDataUrl);
+    return parsed;
+  }
+
+  const lowerName = file.name.toLowerCase();
+  if (lowerName.endsWith(".pdf")) {
+    const parsedFromApi = await parseCapitalOneStatement(file.name, fileDataUrl);
+    if (parsedFromApi) return parsedFromApi;
+  }
+
+  const text = await readFileAsText(file).catch(() => "");
+  return parseExpensesFromText(text);
+}
+
+async function runCustomParserTest(
+  parserSource: string,
+  fileName: string,
+  fileDataUrl: string
+): Promise<ParsedStatementSummary> {
+  const response = await fetch("/api/parse/custom-parser-test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parserSource, fileName, fileDataUrl }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data?.message ?? "Could not run parser test.");
+  }
+
+  const normalized = normalizeParserTestSummary(data?.parsed);
+  if (!normalized) {
+    throw new Error(
+      "Parser output format is unsupported. Return groups[] or expenses[] with description and amount."
+    );
+  }
+
+  return normalized;
+}
+
+async function parseCapitalOneStatement(fileName: string, fileDataUrl: string): Promise<ParsedStatementSummary | null> {
+  try {
+    const response = await fetch("/api/parse/capital-one", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName, fileDataUrl }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return coerceParsedSummary(data?.parsed);
+  } catch {
+    return null;
+  }
+}
+
+function parseStatementExpenseSummary(statement: AccountStatement): ParsedStatementSummary | null {
+  if (statement.parsed_result) {
+    try {
+      const parsed = JSON.parse(statement.parsed_result);
+      const normalized = coerceParsedSummary(parsed);
+      if (normalized) return normalized;
+    } catch {
+      // Ignore malformed stored parser output and fallback below.
+    }
+  }
+
+  const lowerName = statement.file_name.toLowerCase();
+
+  // PDFs cannot be decoded as readable text — skip the fallback entirely.
+  // Statements uploaded without a parser source stored valid parsed_result;
+  // PDFs with no valid parsed_result should show nothing rather than binary garbage.
+  if (lowerName.endsWith(".pdf")) return null;
 
   if (lowerName.endsWith(".json")) {
-    const text = decodeDataUrlText(fileDataUrl);
+    const text = decodeDataUrlText(statement.file_data_url);
     if (!text) return null;
 
     try {
       const data = JSON.parse(text);
-      const expenses = Array.isArray(data.expenses) ? data.expenses : [];
-      const items: ParsedExpenseItem[] = expenses
-        .map((item: any) => ({
-          description: String(item?.description ?? ""),
-          amount: Number(item?.amount ?? 0),
-        }))
-        .filter((item: ParsedExpenseItem) => item.description.length > 0 && Number.isFinite(item.amount) && item.amount > 0);
-
-      const totalFromFile = Number(data?.total_expenses_amount ?? 0);
-      const total = Number.isFinite(totalFromFile) && totalFromFile > 0
-        ? totalFromFile
-        : items.reduce((sum, item) => sum + item.amount, 0);
-
-      return {
-        total,
-        items,
-      };
+      return coerceParsedSummary(data);
     } catch {
       return null;
     }
   }
 
-  const text = decodeDataUrlText(fileDataUrl);
+  const text = decodeDataUrlText(statement.file_data_url);
   if (!text) return null;
 
   return parseExpensesFromText(text);
+}
+
+function normalizeParserTestSummary(value: any): ParsedStatementSummary | null {
+  const base = coerceParsedSummary(value);
+  if (!base) return null;
+
+  const aggregated = new Map<string, ParsedExpenseGroup>();
+
+  for (const group of base.groups) {
+    const sourceTransactions = group.transactions.length > 0 ? group.transactions : [{ description: group.description, amount: group.amount }];
+
+    for (const transaction of sourceTransactions) {
+      const name = cleanParserTestDescription(transaction.description || group.description);
+      if (!name) continue;
+
+      const existing = aggregated.get(name) ?? {
+        description: name,
+        amount: 0,
+        transactions: [],
+      };
+
+      existing.amount += transaction.amount;
+      existing.transactions.push({ description: name, amount: transaction.amount });
+      aggregated.set(name, existing);
+    }
+  }
+
+  const groups = [...aggregated.values()].sort((a, b) => b.amount - a.amount);
+
+  if (groups.length === 0) return null;
+
+  return {
+    total: groups.reduce((sum, item) => sum + item.amount, 0),
+    groups,
+  };
+}
+
+function cleanParserTestDescription(value: string) {
+  let text = value.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  const lower = text.toLowerCase();
+  const junkPhrases = [
+    "transactions +",
+    "new balance =",
+    "total transactions",
+    "total transactions for this period",
+    "total transaction",
+    "balance",
+    "statement",
+    "payment due",
+    "autopay",
+    "rewards",
+    "name",
+    "late fee",
+    "due date",
+    "interest charge",
+    "fees for this period",
+    "interest for this period",
+    "year-to-date",
+    "fees charged",
+    "interest charged",
+  ];
+
+  if (junkPhrases.some((phrase) => lower.includes(phrase))) return "";
+
+  text = text.replace(/^((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}\s*)+/i, "").trim();
+  text = text.replace(/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*/g, "").trim();
+  text = text.replace(/^\$?\d+(?:\.\d{2})?\s*/g, "").trim();
+
+  while (true) {
+    const trimmed = text.replace(/(?:\s?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?[A-Z]{2})$/, "").trim();
+    if (trimmed === text) break;
+    text = trimmed;
+  }
+
+  text = text.replace(/\s+(?:#\d+|\d{4,})$/g, "").trim();
+  text = text.replace(/\s*[:\-–—]+\s*$/, "").trim();
+
+  return text;
 }
 
 function decodeDataUrlText(dataUrl: string) {
@@ -1390,8 +1926,99 @@ function parseExpensesFromText(text: string): ParsedStatementSummary {
     });
   }
 
+  const groups = mergeGroupedExpenses([], items.map((item: ParsedExpenseItem) => ({
+    description: item.description,
+    amount: item.amount,
+    transactions: [item],
+  })));
+
   return {
-    total: items.reduce((sum, item) => sum + item.amount, 0),
-    items,
+    total: groups.reduce((sum, item) => sum + item.amount, 0),
+    groups,
   };
+}
+
+function coerceParsedSummary(value: any): ParsedStatementSummary | null {
+  if (!value || typeof value !== "object") return null;
+
+  if (Array.isArray(value.groups)) {
+    const groups = value.groups
+      .map((group: any) => {
+        const description = String(group?.description ?? "").trim();
+        const amount = Number(group?.amount ?? 0);
+        const transactionsRaw = Array.isArray(group?.transactions) ? group.transactions : [];
+        const transactions = transactionsRaw
+          .map((tx: any) => ({
+            description: String(tx?.description ?? description).trim() || description,
+            amount: Number(tx?.amount ?? 0),
+          }))
+          .filter((tx: ParsedExpenseItem) => tx.description.length > 0 && Number.isFinite(tx.amount) && tx.amount > 0);
+
+        if (!description || !Number.isFinite(amount) || amount <= 0) return null;
+
+        return {
+          description,
+          amount,
+          transactions: transactions.length > 0 ? transactions : [{ description, amount }],
+        };
+      })
+      .filter((group: ParsedExpenseGroup | null): group is ParsedExpenseGroup => Boolean(group));
+
+    const merged = mergeGroupedExpenses([], groups);
+    return {
+      total: merged.reduce((sum, item) => sum + item.amount, 0),
+      groups: merged,
+    };
+  }
+
+  const legacyItems = Array.isArray(value.items)
+    ? value.items
+    : Array.isArray(value.expenses)
+      ? value.expenses
+      : [];
+
+  const items = legacyItems
+    .map((item: any) => ({
+      description: String(item?.description ?? "").trim(),
+      amount: Number(item?.amount ?? 0),
+    }))
+    .filter((item: ParsedExpenseItem) => item.description.length > 0 && Number.isFinite(item.amount) && item.amount > 0);
+
+  if (items.length === 0) return null;
+
+  const groups = mergeGroupedExpenses([], items.map((item: ParsedExpenseItem) => ({
+    description: item.description,
+    amount: item.amount,
+    transactions: [item],
+  })));
+
+  return {
+    total: groups.reduce((sum, item) => sum + item.amount, 0),
+    groups,
+  };
+}
+
+function mergeGroupedExpenses(base: ParsedExpenseGroup[], additions: ParsedExpenseGroup[]) {
+  const map = new Map<string, ParsedExpenseGroup>();
+
+  for (const group of base) {
+    map.set(group.description, {
+      description: group.description,
+      amount: group.amount,
+      transactions: [...group.transactions],
+    });
+  }
+
+  for (const group of additions) {
+    const existing = map.get(group.description) ?? {
+      description: group.description,
+      amount: 0,
+      transactions: [],
+    };
+    existing.amount += group.amount;
+    existing.transactions.push(...group.transactions);
+    map.set(group.description, existing);
+  }
+
+  return [...map.values()].sort((a, b) => b.amount - a.amount);
 }
