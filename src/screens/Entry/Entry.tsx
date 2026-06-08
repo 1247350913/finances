@@ -700,7 +700,7 @@ export function Entry() {
         </Link>
         <Link className={styles.subnavLink} to="/overview">Overview</Link>
         <Link className={styles.subnavLink} to="/expenses">Expenses</Link>
-        <Link className={styles.profileLink} to="/home" aria-label="Profile">
+        <Link className={styles.profileLink} to="/profile" aria-label="Profile">
           <img className={styles.profileIcon} src={ASSETS.defaultProfileIcon} alt="" aria-hidden="true" />
         </Link>
       </header>

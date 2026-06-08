@@ -1,4 +1,7 @@
-import { Fragment, ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import { Link } from "react-router-dom";
 import { Footer } from "../../components/Footer";
 import { ASSETS } from "../../lib";
@@ -37,7 +40,11 @@ type ChartSettings = {
   titleEnabled: boolean;
   titleText: string;
   titleAlign: TitleAlign;
+  tableTitleEnabled: boolean;
+  tableTitleText: string;
+  tableTitleAlign: TitleAlign;
   goalValue: number | null;
+  yAxisUpperBound: number | null;
   goalColor: string;
   goalStyle: LineStyle;
   lineColor: string;
@@ -68,7 +75,7 @@ const DEFAULT_WIDGETS: OverviewWidgetPreference[] = [
 
 const WIDGET_LABELS: Record<OverviewWidgetKey, string> = {
   chart: "Net Worth Graph",
-  captions: "MD editor",
+  captions: "MD Editor",
   categories: "Category Year Table",
 };
 
@@ -80,7 +87,11 @@ const DEFAULT_CHART_SETTINGS: ChartSettings = {
   titleEnabled: true,
   titleText: "Net Worth Over Time",
   titleAlign: "left",
+  tableTitleEnabled: true,
+  tableTitleText: "Net Worth By Category Over Years",
+  tableTitleAlign: "left",
   goalValue: null,
+  yAxisUpperBound: null,
   goalColor: "#cb2e3e",
   goalStyle: "dashed",
   lineColor: "#1f5bcc",
@@ -108,6 +119,21 @@ function formatMoney(value: number) {
   });
 }
 
+function parseNumberInput(raw: string) {
+  const cleaned = raw.replace(/,/g, "").trim();
+  if (cleaned.length === 0) return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatNumberInput(value: number | null) {
+  if (value === null) return "";
+  return Math.round(value).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
 function buildYearsFromRange(startYear: number | null, endYear: number | null) {
   if (startYear === null || endYear === null || endYear < startYear) return [];
   return Array.from({ length: endYear - startYear + 1 }, (_x, index) => startYear + index);
@@ -130,6 +156,9 @@ function coerceChartSettings(value: unknown): ChartSettings {
   const goalValue = typeof candidate.goalValue === "number" && Number.isFinite(candidate.goalValue)
     ? candidate.goalValue
     : null;
+  const yAxisUpperBound = typeof candidate.yAxisUpperBound === "number" && Number.isFinite(candidate.yAxisUpperBound)
+    ? candidate.yAxisUpperBound
+    : null;
 
   return {
     titleEnabled: typeof candidate.titleEnabled === "boolean" ? candidate.titleEnabled : DEFAULT_CHART_SETTINGS.titleEnabled,
@@ -137,7 +166,13 @@ function coerceChartSettings(value: unknown): ChartSettings {
       ? candidate.titleText
       : DEFAULT_CHART_SETTINGS.titleText,
     titleAlign: candidate.titleAlign === "center" || candidate.titleAlign === "right" ? candidate.titleAlign : "left",
+    tableTitleEnabled: typeof candidate.tableTitleEnabled === "boolean" ? candidate.tableTitleEnabled : DEFAULT_CHART_SETTINGS.tableTitleEnabled,
+    tableTitleText: typeof candidate.tableTitleText === "string" && candidate.tableTitleText.length > 0
+      ? candidate.tableTitleText
+      : DEFAULT_CHART_SETTINGS.tableTitleText,
+    tableTitleAlign: candidate.tableTitleAlign === "center" || candidate.tableTitleAlign === "right" ? candidate.tableTitleAlign : "left",
     goalValue,
+    yAxisUpperBound,
     goalColor: typeof candidate.goalColor === "string" && candidate.goalColor.length > 0 ? candidate.goalColor : DEFAULT_CHART_SETTINGS.goalColor,
     goalStyle: candidate.goalStyle === "solid" ? "solid" : "dashed",
     lineColor: typeof candidate.lineColor === "string" && candidate.lineColor.length > 0 ? candidate.lineColor : DEFAULT_CHART_SETTINGS.lineColor,
@@ -162,116 +197,6 @@ function coerceChartSettings(value: unknown): ChartSettings {
   };
 }
 
-function renderInlineMarkdown(textValue: string) {
-  const tokens = textValue
-    .split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^\)]+\))/g)
-    .filter((token) => token.length > 0);
-
-  return tokens.map((token, index) => {
-    if (token.startsWith("**") && token.endsWith("**")) {
-      return <strong key={`b-${index}`}>{token.slice(2, -2)}</strong>;
-    }
-
-    if (token.startsWith("*") && token.endsWith("*")) {
-      return <em key={`i-${index}`}>{token.slice(1, -1)}</em>;
-    }
-
-    if (token.startsWith("`") && token.endsWith("`")) {
-      return <code key={`c-${index}`}>{token.slice(1, -1)}</code>;
-    }
-
-    const linkMatch = token.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
-    if (linkMatch) {
-      return (
-        <a key={`a-${index}`} href={linkMatch[2]} target="_blank" rel="noreferrer">
-          {linkMatch[1]}
-        </a>
-      );
-    }
-
-    return <Fragment key={`t-${index}`}>{token}</Fragment>;
-  });
-}
-
-function parseMarkdown(text: string): ReactNode[] {
-  const lines = text.split(/\r?\n/);
-  const nodes: ReactNode[] = [];
-  let unorderedListBuffer: string[] = [];
-  let orderedListBuffer: string[] = [];
-
-  function flushUnorderedList() {
-    if (unorderedListBuffer.length === 0) return;
-    nodes.push(
-      <ul key={`ul-${nodes.length}`}>
-        {unorderedListBuffer.map((item, index) => (
-          <li key={`li-${index}`}>{renderInlineMarkdown(item)}</li>
-        ))}
-      </ul>
-    );
-    unorderedListBuffer = [];
-  }
-
-  function flushOrderedList() {
-    if (orderedListBuffer.length === 0) return;
-    nodes.push(
-      <ol key={`ol-${nodes.length}`}>
-        {orderedListBuffer.map((item, index) => (
-          <li key={`oli-${index}`}>{renderInlineMarkdown(item)}</li>
-        ))}
-      </ol>
-    );
-    orderedListBuffer = [];
-  }
-
-  function flushLists() {
-    flushUnorderedList();
-    flushOrderedList();
-  }
-
-  lines.forEach((rawLine, index) => {
-    const line = rawLine.trim();
-    if (line.length === 0) {
-      flushLists();
-      return;
-    }
-
-    if (line.startsWith("- ")) {
-      flushOrderedList();
-      unorderedListBuffer.push(line.slice(2));
-      return;
-    }
-
-    const numberedLine = line.match(/^\d+\.\s+(.+)$/);
-    if (numberedLine) {
-      flushUnorderedList();
-      orderedListBuffer.push(numberedLine[1]);
-      return;
-    }
-
-    flushLists();
-
-    if (line.startsWith("### ")) {
-      nodes.push(<h4 key={`h4-${index}`}>{renderInlineMarkdown(line.slice(4))}</h4>);
-      return;
-    }
-
-    if (line.startsWith("## ")) {
-      nodes.push(<h3 key={`h3-${index}`}>{renderInlineMarkdown(line.slice(3))}</h3>);
-      return;
-    }
-
-    if (line.startsWith("# ")) {
-      nodes.push(<h2 key={`h2-${index}`}>{renderInlineMarkdown(line.slice(2))}</h2>);
-      return;
-    }
-
-    nodes.push(<p key={`p-${index}`}>{renderInlineMarkdown(line)}</p>);
-  });
-
-  flushLists();
-  return nodes;
-}
-
 function normalizeWidgetPreferences(preferences: OverviewWidgetPreference[]) {
   const active = preferences.filter((item) => item.enabled);
   const inactive = preferences.filter((item) => !item.enabled);
@@ -291,10 +216,12 @@ function arraysEqual(a: string[], b: string[]) {
 export function Overview() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingLayout, setIsSavingLayout] = useState(false);
+  const [saveJustCompleted, setSaveJustCompleted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
   const [draggedWidgetKey, setDraggedWidgetKey] = useState<OverviewWidgetKey | null>(null);
+  const [markdownTab, setMarkdownTab] = useState<"edit" | "preview">("edit");
 
   const [savedWidgetPreferences, setSavedWidgetPreferences] = useState<OverviewWidgetPreference[]>(DEFAULT_WIDGETS);
   const [draftWidgetPreferences, setDraftWidgetPreferences] = useState<OverviewWidgetPreference[]>(DEFAULT_WIDGETS);
@@ -389,7 +316,12 @@ export function Overview() {
 
       setNetWorthByYear(nextNetWorthByYear);
       setGroupTotalsByYear(nextGroupTotalsByYear);
-      setSectionNames([...nextGroupTotalsByYear.keys()].sort((a, b) => a.localeCompare(b)));
+      const sortedSectionNames = [...new Set([
+        ...groups.map((group) => group.name),
+        ...nextGroupTotalsByYear.keys(),
+      ])].sort((a, b) => a.localeCompare(b));
+      setSectionNames(sortedSectionNames);
+      setTableFilterSections(sortedSectionNames);
 
       const persistedWidgets = settingsRow?.overview_widgets;
       const nextWidgetPreferences = isValidPreference(persistedWidgets)
@@ -436,6 +368,7 @@ export function Overview() {
     setDraftWidgetPreferences(normalizeWidgetPreferences(savedWidgetPreferences));
     setDraftCaptionMd(savedCaptionMd);
     setDraftChartSettings(savedChartSettings);
+    setMarkdownTab("edit");
     setIsCustomizeOpen(true);
     setStatusMessage(null);
   }
@@ -455,6 +388,7 @@ export function Overview() {
   async function saveOverviewLayout() {
     try {
       setIsSavingLayout(true);
+      setSaveJustCompleted(false);
       setErrorMessage(null);
       setStatusMessage(null);
 
@@ -478,10 +412,13 @@ export function Overview() {
       setSavedWidgetPreferences(normalizeWidgetPreferences(draftWidgetPreferences));
       setSavedCaptionMd(draftCaptionMd);
       setSavedChartSettings(draftChartSettings);
+      setSaveJustCompleted(true);
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
       setIsCustomizeOpen(false);
-      setStatusMessage("Overview layout saved.");
+      setSaveJustCompleted(false);
     } catch (err: any) {
       console.error(err);
+      setSaveJustCompleted(false);
       setErrorMessage(err.message ?? "Could not save layout.");
     } finally {
       setIsSavingLayout(false);
@@ -566,7 +503,7 @@ export function Overview() {
   );
 
   const tableRows = useMemo(() => {
-    const selected = tableFilterSections.length > 0 ? tableFilterSections : [TOTAL_SERIES];
+    const selected = tableFilterSections.length > 0 ? tableFilterSections : sectionNames;
     return selected.map((name) => ({
       label: name === TOTAL_SERIES ? "Total Net Worth" : name,
       values: tableFilteredYears.map((year) => {
@@ -574,7 +511,7 @@ export function Overview() {
         return groupTotalsByYear.get(name)?.get(year) ?? 0;
       }),
     }));
-  }, [groupTotalsByYear, netWorthByYear, tableFilterSections, tableFilteredYears]);
+  }, [groupTotalsByYear, netWorthByYear, sectionNames, tableFilterSections, tableFilteredYears]);
 
   const chartGeometry = useMemo(() => {
     const width = 920;
@@ -594,7 +531,10 @@ export function Overview() {
     const maxValueRaw = Math.max(0, ...sourceValues);
     const step = Math.max(1, Math.floor(activeChartSettings.yAxisStep));
     const minValue = Math.floor(minValueRaw / step) * step;
-    const maxValue = Math.ceil(maxValueRaw / step) * step;
+    const configuredUpper = activeChartSettings.yAxisUpperBound;
+    const autoMax = Math.ceil(maxValueRaw / step) * step;
+    const configuredMax = configuredUpper === null ? null : Math.max(configuredUpper, minValue + step);
+    const maxValue = configuredMax ?? autoMax;
     const spread = Math.max(step, maxValue - minValue);
 
     const valueToY = (value: number) => top + (1 - (value - minValue) / spread) * usableHeight;
@@ -602,9 +542,19 @@ export function Overview() {
       left + (chartFilteredYears.length <= 1 ? usableWidth / 2 : (index / (chartFilteredYears.length - 1)) * usableWidth);
 
     const yTicks: number[] = [];
-    for (let tick = minValue; tick <= maxValue; tick += step) {
-      yTicks.push(tick);
-      if (yTicks.length > 24) break;
+    if (configuredMax !== null) {
+      for (let tick = minValue; tick < maxValue; tick += step) {
+        yTicks.push(tick);
+        if (yTicks.length > 23) break;
+      }
+      if (yTicks.length === 0 || yTicks[yTicks.length - 1] !== maxValue) {
+        yTicks.push(maxValue);
+      }
+    } else {
+      for (let tick = minValue; tick <= maxValue; tick += step) {
+        yTicks.push(tick);
+        if (yTicks.length > 24) break;
+      }
     }
 
     return {
@@ -620,7 +570,7 @@ export function Overview() {
       goalY: activeChartSettings.goalValue === null ? null : valueToY(activeChartSettings.goalValue),
       baselineY: height - bottom,
     };
-  }, [activeChartSettings.goalValue, activeChartSettings.showXAxisLabels, activeChartSettings.showXAxisTitle, activeChartSettings.yAxisStep, chartFilteredYears.length, chartSeriesDefinitions]);
+  }, [activeChartSettings.goalValue, activeChartSettings.showXAxisLabels, activeChartSettings.showXAxisTitle, activeChartSettings.yAxisStep, activeChartSettings.yAxisUpperBound, chartFilteredYears.length, chartSeriesDefinitions]);
 
   const legendPositionClass =
     activeChartSettings.legendPosition === "top-left"
@@ -798,12 +748,12 @@ export function Overview() {
                 <label>
                   Goal Net Worth
                   <input
-                    type="number"
-                    value={draftChartSettings.goalValue ?? ""}
+                    type="text"
+                    inputMode="numeric"
+                    value={formatNumberInput(draftChartSettings.goalValue)}
                     placeholder="No goal"
                     onChange={(event) => {
-                      const raw = event.target.value.trim();
-                      const parsed = raw.length === 0 ? null : Number(raw);
+                      const parsed = parseNumberInput(event.target.value);
                       setDraftChartSettings((prev) => ({ ...prev, goalValue: parsed !== null && Number.isFinite(parsed) ? parsed : null }));
                     }}
                   />
@@ -835,13 +785,29 @@ export function Overview() {
                 <label>
                   Y-Axis Step ($)
                   <input
-                    type="number"
-                    min={1}
-                    value={draftChartSettings.yAxisStep}
+                    type="text"
+                    inputMode="numeric"
+                    value={formatNumberInput(draftChartSettings.yAxisStep)}
                     onChange={(event) => {
-                      const parsed = Number(event.target.value);
+                      const parsed = parseNumberInput(event.target.value);
                       if (!Number.isFinite(parsed) || parsed <= 0) return;
                       setDraftChartSettings((prev) => ({ ...prev, yAxisStep: Math.floor(parsed) }));
+                    }}
+                  />
+                </label>
+                <label>
+                  Y-Axis Upper Bound ($)
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatNumberInput(draftChartSettings.yAxisUpperBound)}
+                    placeholder="Auto"
+                    onChange={(event) => {
+                      const parsed = parseNumberInput(event.target.value);
+                      setDraftChartSettings((prev) => ({
+                        ...prev,
+                        yAxisUpperBound: parsed !== null && Number.isFinite(parsed) ? parsed : null,
+                      }));
                     }}
                   />
                 </label>
@@ -882,7 +848,7 @@ export function Overview() {
           </div>
         )}
 
-        <div className={styles.chartWrap}>
+        <div className={`${styles.chartWrap} ${styles.chartWrapFlat}`}>
           {activeChartSettings.titleEnabled && (
             <h2 className={`${styles.chartTitle} ${activeChartSettings.titleAlign === "center" ? styles.alignCenter : activeChartSettings.titleAlign === "right" ? styles.alignRight : styles.alignLeft}`}>
               {activeChartSettings.titleText}
@@ -1011,25 +977,49 @@ export function Overview() {
   }
 
   function renderMarkdownWidget() {
+    const markdownSource = activeCaptionMd.length > 0 ? activeCaptionMd : DEFAULT_CAPTION_MD;
+
     return (
       <section className={styles.widgetCard} key="md-widget">
-        {isCustomizeOpen && <h2>MD editor</h2>}
+        {isCustomizeOpen && <h2 className={styles.mdWidgetTitle}>MD Editor</h2>}
         <div className={styles.captionEditorWrap}>
           {isCustomizeOpen ? (
-            <div className={styles.captionSplit}>
-              <textarea
-                className={styles.captionEditor}
-                value={draftCaptionMd}
-                onChange={(event) => setDraftCaptionMd(event.target.value)}
-                placeholder={DEFAULT_CAPTION_MD}
-              />
-              <div className={styles.captionText}>
-                {parseMarkdown((activeCaptionMd || DEFAULT_CAPTION_MD).trim().length > 0 ? activeCaptionMd : DEFAULT_CAPTION_MD)}
+            <div className={styles.captionTabsWrap}>
+              <div className={styles.captionTabs}>
+                <button
+                  type="button"
+                  className={`${styles.captionTab} ${markdownTab === "edit" ? styles.captionTabActive : ""}`}
+                  onClick={() => setMarkdownTab("edit")}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.captionTab} ${markdownTab === "preview" ? styles.captionTabActive : ""}`}
+                  onClick={() => setMarkdownTab("preview")}
+                >
+                  Preview
+                </button>
+              </div>
+
+              <div className={styles.captionTabBody}>
+                {markdownTab === "edit" ? (
+                  <textarea
+                    className={styles.captionEditor}
+                    value={draftCaptionMd}
+                    onChange={(event) => setDraftCaptionMd(event.target.value)}
+                    placeholder={DEFAULT_CAPTION_MD}
+                  />
+                ) : (
+                  <div className={styles.captionText}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{markdownSource}</ReactMarkdown>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
-            <div className={styles.captionText}>
-              {parseMarkdown((activeCaptionMd || DEFAULT_CAPTION_MD).trim().length > 0 ? activeCaptionMd : DEFAULT_CAPTION_MD)}
+            <div className={`${styles.captionText} ${styles.captionTextFlat}`}>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{markdownSource}</ReactMarkdown>
             </div>
           )}
         </div>
@@ -1040,52 +1030,99 @@ export function Overview() {
   function renderTableWidget() {
     return (
       <section className={styles.widgetCard} key="table-widget">
-        <h2>Net Worth By Category Over Years</h2>
-        <div className={styles.filterBar}>
-          <label>
-            Time From
-            <select value={tableFilterStartYear} onChange={(event) => setTableFilterStartYear(event.target.value)}>
-              <option value="">All</option>
-              {years.map((year) => (
-                <option key={`table-start-${year}`} value={String(year)}>{year}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Time To
-            <select value={tableFilterEndYear} onChange={(event) => setTableFilterEndYear(event.target.value)}>
-              <option value="">All</option>
-              {years.map((year) => (
-                <option key={`table-end-${year}`} value={String(year)}>{year}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Section
-            {renderSectionSelector(tableFilterSections, setTableFilterSections, "table")}
-          </label>
-        </div>
+        {activeChartSettings.tableTitleEnabled && (
+          <h2 className={activeChartSettings.tableTitleAlign === "center" ? styles.alignCenter : activeChartSettings.tableTitleAlign === "right" ? styles.alignRight : styles.alignLeft}>
+            {activeChartSettings.tableTitleText}
+          </h2>
+        )}
 
-        <table>
-          <thead>
-            <tr>
-              <th>Category</th>
-              {tableFilteredYears.map((year) => (
-                <th key={year}>{year}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {tableRows.map((row) => (
-              <tr key={row.label}>
-                <td>{row.label}</td>
-                {row.values.map((value, index) => (
-                  <td key={`${row.label}-${tableFilteredYears[index]}`}>${formatMoney(value)}</td>
+        {isCustomizeOpen && (
+          <div className={styles.chartSettingsShell}>
+            <section className={styles.settingsGroup}>
+              <h3>Title</h3>
+              <div className={styles.settingsGrid}>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.tableTitleEnabled}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, tableTitleEnabled: event.target.checked }))}
+                  />
+                  Show Title
+                </label>
+                <label>
+                  Title Text
+                  <input
+                    type="text"
+                    value={draftChartSettings.tableTitleText}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, tableTitleText: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Title Align
+                  <select
+                    value={draftChartSettings.tableTitleAlign}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, tableTitleAlign: event.target.value as TitleAlign }))}
+                  >
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section className={styles.settingsGroup}>
+              <h3>Filters</h3>
+              <div className={styles.filterBar}>
+                <label>
+                  Time From
+                  <select value={tableFilterStartYear} onChange={(event) => setTableFilterStartYear(event.target.value)}>
+                    <option value="">All</option>
+                    {years.map((year) => (
+                      <option key={`table-start-${year}`} value={String(year)}>{year}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Time To
+                  <select value={tableFilterEndYear} onChange={(event) => setTableFilterEndYear(event.target.value)}>
+                    <option value="">All</option>
+                    {years.map((year) => (
+                      <option key={`table-end-${year}`} value={String(year)}>{year}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Section
+                  {renderSectionSelector(tableFilterSections, setTableFilterSections, "table")}
+                </label>
+              </div>
+            </section>
+          </div>
+        )}
+
+        <div className={styles.overviewTableWrap}>
+          <table className={styles.overviewTable}>
+            <thead>
+              <tr>
+                <th aria-label="Category label column" />
+                {tableFilteredYears.map((year) => (
+                  <th key={year}>{year}</th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {tableRows.map((row) => (
+                <tr key={row.label}>
+                  <td>{row.label}</td>
+                  {row.values.map((value, index) => (
+                    <td key={`${row.label}-${tableFilteredYears[index]}`}>${formatMoney(value)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     );
   }
@@ -1105,7 +1142,7 @@ export function Overview() {
           </Link>
           <Link className={styles.subnavLink} to="/expenses">Expenses</Link>
           <Link className={styles.subnavLink} to="/entry">Entry</Link>
-          <Link className={styles.profileLink} to="/home" aria-label="Profile">
+          <Link className={styles.profileLink} to="/profile" aria-label="Profile">
             <img className={styles.profileIcon} src={ASSETS.defaultProfileIcon} alt="" aria-hidden="true" />
           </Link>
         </header>
@@ -1123,10 +1160,10 @@ export function Overview() {
             )}
             {isCustomizeOpen && (
               <div className={styles.topActions}>
-                <button type="button" className={styles.customizeButton} onClick={() => void saveOverviewLayout()} disabled={isSavingLayout}>
-                  {isSavingLayout ? "Saving..." : "Save"}
+                <button type="button" className={styles.customizeButton} onClick={() => void saveOverviewLayout()} disabled={isSavingLayout || saveJustCompleted}>
+                  {isSavingLayout ? "Saving..." : saveJustCompleted ? "Saved" : "Save"}
                 </button>
-                <button type="button" className={styles.customizeButton} onClick={closeEdit}>
+                <button type="button" className={styles.customizeButton} onClick={closeEdit} disabled={isSavingLayout || saveJustCompleted}>
                   Close
                 </button>
               </div>
@@ -1154,10 +1191,12 @@ export function Overview() {
                         }}
                         onDragEnd={() => setDraggedWidgetKey(null)}
                       >
-                        <span>{WIDGET_LABELS[widget.key]}</span>
+                        <div className={styles.widgetChooserLabelWrap}>
+                          <span className={styles.widgetDragHandle} aria-hidden="true" />
+                          <span>{WIDGET_LABELS[widget.key]}</span>
+                        </div>
                         <div className={styles.widgetChooserRowActions}>
                           <button type="button" onClick={() => setWidgetEnabled(widget.key, false)}>Remove</button>
-                          <span className={styles.widgetTileHint}>Drag</span>
                         </div>
                       </div>
                     ))}

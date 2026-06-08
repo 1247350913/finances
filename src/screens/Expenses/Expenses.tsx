@@ -42,6 +42,8 @@ type ParsedStatementSummary = {
   groups: ParsedExpenseGroup[];
 };
 
+type AmountDisplayMode = "decimal" | "rounded";
+
 type AddAccountForm = {
   name: string;
   last4: string;
@@ -60,6 +62,7 @@ const INITIAL_ADD_FORM: AddAccountForm = {
 };
 
 const NO_PARSER_SOURCE_MESSAGE = "No parser uploaded yet. Upload a parser file in Manage > Add Account.";
+const PREVIEW_GROUP_LIMIT = 8;
 
 function makeCardBadge(name: string) {
   const trimmed = name.trim();
@@ -72,6 +75,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   const [allStatements, setAllStatements] = useState<AccountStatement[]>([]);
   const [statements, setStatements] = useState<AccountStatement[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isReadSummaryLoading, setIsReadSummaryLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isStatementSaving, setIsStatementSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -106,6 +110,9 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [amountDisplayMode, setAmountDisplayMode] = useState<AmountDisplayMode>("decimal");
+  const [readMonthDetailMonthKey, setReadMonthDetailMonthKey] = useState<string | null>(null);
+  const [expandedReadGroupKeys, setExpandedReadGroupKeys] = useState<string[]>([]);
   const [addForm, setAddForm] = useState<AddAccountForm>(INITIAL_ADD_FORM);
   const [cardImageFile, setCardImageFile] = useState<File | null>(null);
   const [parserFile, setParserFile] = useState<File | null>(null);
@@ -148,14 +155,19 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   }, []);
 
   useEffect(() => {
-    if (mode !== "read") return;
+    if (mode !== "read") {
+      setIsReadSummaryLoading(false);
+      return;
+    }
+
     if (accounts.length === 0) {
       setAllStatements([]);
+      setIsReadSummaryLoading(isLoading);
       return;
     }
 
     void loadAllStatements(accounts.map((account) => account.id));
-  }, [mode, accounts]);
+  }, [mode, accounts, isLoading]);
 
   useEffect(() => {
     if (mode !== "statements") return;
@@ -173,6 +185,10 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
     setParserTestResult(null);
     setParserTestError(null);
   }, [manageActiveAccountId, managePanel]);
+
+  useEffect(() => {
+    setExpandedReadGroupKeys([]);
+  }, [readMonthDetailMonthKey]);
 
   async function loadAccounts() {
     try {
@@ -285,6 +301,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
 
   async function loadAllStatements(accountIds: string[]) {
     try {
+      setIsReadSummaryLoading(true);
       setErrorMessage(null);
 
       const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -303,6 +320,8 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load statement summaries.");
+    } finally {
+      setIsReadSummaryLoading(false);
     }
   }
 
@@ -477,7 +496,6 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setStatementDate("");
       setStatementFile(null);
       setIsStatementUploadOpen(false);
-      setStatusMessage("Statement uploaded.");
       await loadStatements(selectedAccount.id);
     } catch (err: any) {
       console.error(err);
@@ -507,7 +525,13 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
 
       if (error) throw error;
 
-      setStatusMessage("Parser file replaced.");
+      const reparseResult = await reparseExistingStatementsForAccount(activeManageAccount.id, parserSource);
+      if (reparseResult.failedCount > 0) {
+        setErrorMessage(
+          `Parser was replaced, but ${reparseResult.failedCount} statement(s) could not be re-parsed.`
+        );
+      }
+
       await loadAccounts();
     } catch (err: any) {
       console.error(err);
@@ -515,6 +539,47 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
     } finally {
       setIsManageParserSaving(false);
     }
+  }
+
+  async function reparseExistingStatementsForAccount(accountId: string, parserSource: string) {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) throw userError;
+    if (!userData.user) throw new Error("Please sign in again.");
+
+    const { data: statementsData, error: statementsError } = await supabase
+      .from("account_statements")
+      .select("id,file_name,file_data_url")
+      .eq("user_id", userData.user.id)
+      .eq("account_id", accountId)
+      .order("statement_date", { ascending: true });
+
+    if (statementsError) throw statementsError;
+
+    const statements = statementsData ?? [];
+    let failedCount = 0;
+
+    for (const statement of statements) {
+      try {
+        const parsedSummary = await runCustomParserTest(
+          parserSource,
+          statement.file_name,
+          statement.file_data_url
+        );
+
+        const { error: updateError } = await supabase
+          .from("account_statements")
+          .update({ parsed_result: JSON.stringify(parsedSummary) })
+          .eq("id", statement.id)
+          .eq("user_id", userData.user.id);
+
+        if (updateError) throw updateError;
+      } catch (error) {
+        console.error("Failed to re-parse statement", statement.id, error);
+        failedCount += 1;
+      }
+    }
+
+    return { failedCount };
   }
 
   async function handleRunManageParserTest() {
@@ -541,7 +606,6 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       );
 
       setParserTestResult(parsedSummary);
-      setStatusMessage("Parser test complete.");
     } catch (err: any) {
       console.error(err);
       setParserTestResult(null);
@@ -646,7 +710,6 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setManageStatementDate("");
       setManageStatementFile(null);
       setIsManageUploadOpen(false);
-      setStatusMessage("Statement uploaded and parsed.");
       await loadManageStatements(activeManageAccount.id);
     } catch (err: any) {
       console.error(err);
@@ -771,7 +834,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
           </Link>
           <Link className={styles.subnavLink} to="/overview">Overview</Link>
           <Link className={styles.subnavLink} to="/entry">Entry</Link>
-          <Link className={styles.profileLink} to="/home" aria-label="Profile">
+          <Link className={styles.profileLink} to="/profile" aria-label="Profile">
             <img className={styles.profileIcon} src={ASSETS.defaultProfileIcon} alt="" aria-hidden="true" />
           </Link>
         </header>
@@ -938,19 +1001,49 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
                     </div>
                   )}
                 </div>
+
+                <div className={styles.filterItem}>
+                  <div className={styles.amountModeToggle}>
+                    <button
+                      type="button"
+                      className={`${styles.amountModeButton} ${amountDisplayMode === "decimal" ? styles.amountModeButtonActive : ""}`}
+                      onClick={() => setAmountDisplayMode("decimal")}
+                    >
+                      Decimal
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.amountModeButton} ${amountDisplayMode === "rounded" ? styles.amountModeButtonActive : ""}`}
+                      onClick={() => setAmountDisplayMode("rounded")}
+                    >
+                      Rounded
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {readSummary.years.length === 0 && !isLoading && (
+              {(isLoading || isReadSummaryLoading) && (
+                <p className={styles.emptyState}>Loading statement months...</p>
+              )}
+
+              {readSummary.years.length === 0 && !isLoading && !isReadSummaryLoading && (
                 <p className={styles.emptyState}>No statement months yet. Upload statements to see monthly breakdowns.</p>
               )}
 
               {readSummary.years.map((year) => {
                 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+                const annualTotal = MONTHS.reduce((sum, monthNum) => {
+                  const monthKey = `${year}-${String(monthNum).padStart(2, "0")}`;
+                  return sum + (readSummary.totalsByMonth.get(monthKey) ?? 0);
+                }, 0);
 
                 return (
                   <div className={styles.readYearBlock} key={year}>
-                    <div className={styles.readYearLabel}>{year}</div>
+                    <div className={styles.readYearHeader}>
+                      <div className={styles.readYearLabel}>{year}</div>
+                      <div className={`${styles.readMonthTotal} ${styles.readYearTotal}`}>{formatMonthOrAnnualTotal(annualTotal, amountDisplayMode)}</div>
+                    </div>
                     <div className={styles.readMonthGrid}>
                       {MONTHS.map((monthNum) => {
                         const monthKey = `${year}-${String(monthNum).padStart(2, "0")}`;
@@ -958,13 +1051,26 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
 
                         return (
                           <div
-                            className={`${styles.readMonthCell} ${!hasData ? styles.readMonthCellEmpty : ""}`}
+                            className={`${styles.readMonthCell} ${!hasData ? styles.readMonthCellEmpty : ""} ${hasData ? styles.readMonthCellClickable : ""}`}
                             key={monthNum}
+                            onClick={() => {
+                              if (!hasData) return;
+                              setReadMonthDetailMonthKey(monthKey);
+                            }}
+                            role={hasData ? "button" : undefined}
+                            tabIndex={hasData ? 0 : -1}
+                            onKeyDown={(event) => {
+                              if (!hasData) return;
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setReadMonthDetailMonthKey(monthKey);
+                              }
+                            }}
                           >
                             <div className={styles.readMonthHeader}>
                               <div className={styles.readMonthLabel}>{MONTH_SHORT[monthNum - 1]}</div>
                               <div className={styles.readMonthTotal}>
-                                {hasData ? formatAmount(readSummary.totalsByMonth.get(monthKey) ?? 0) : "-"}
+                                {hasData ? formatMonthOrAnnualTotal(readSummary.totalsByMonth.get(monthKey) ?? 0, amountDisplayMode) : "-"}
                               </div>
                             </div>
 
@@ -975,34 +1081,20 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
                                 <div className={styles.readAccountBlock} key={account.id}>
                                   <div className={styles.readAccountHeader}>
                                     <div className={styles.readAccountName}>{account.name}</div>
-                                    <div className={styles.readAccountTotal}>{formatAmount(summary.total)}</div>
+                                    <div className={styles.readAccountTotal}>{formatAccountSubtotal(summary.total, amountDisplayMode)}</div>
                                   </div>
                                   <ul className={styles.accountItemList}>
-                                    {summary.groups.slice(0, 4).map((group, index) => (
+                                    {summary.groups.slice(0, PREVIEW_GROUP_LIMIT).map((group, index) => (
                                       <li key={`${account.id}-${monthKey}-${index}`}>
-                                        {group.transactions.length > 1 ? (
-                                          <details className={styles.groupDetails}>
-                                            <summary className={styles.groupSummaryRow}>
-                                              <span className={styles.groupDescription}>{group.description}</span>
-                                              <span className={styles.groupAmount}>{formatAmount(group.amount)}</span>
-                                            </summary>
-                                            <ul className={styles.groupTransactionsList}>
-                                              {group.transactions.map((tx, txIndex) => (
-                                                <li key={`${account.id}-${monthKey}-${index}-${txIndex}`}>
-                                                  <span className={styles.groupDescription}>{tx.description}</span>
-                                                  <span className={styles.groupAmount}>{formatAmount(tx.amount)}</span>
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          </details>
-                                        ) : (
-                                          <div className={styles.groupSummaryRow}>
-                                            <span className={styles.groupDescription}>{group.description}</span>
-                                            <span className={styles.groupAmount}>{formatAmount(group.amount)}</span>
-                                          </div>
-                                        )}
+                                        <div className={styles.groupSummaryRow}>
+                                          <span className={styles.groupDescription}>{group.description}</span>
+                                          <span className={styles.groupAmount}>{formatAmount(group.amount)}</span>
+                                        </div>
                                       </li>
                                     ))}
+                                    {summary.groups.length > PREVIEW_GROUP_LIMIT && (
+                                      <li className={styles.readMonthMoreRow}>...</li>
+                                    )}
                                   </ul>
                                 </div>
                               );
@@ -1501,6 +1593,94 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
         </div>
       )}
 
+      {readMonthDetailMonthKey && (
+        <div className={`${styles.modalOverlay} ${styles.readMonthDetailOverlay}`} role="dialog" aria-modal="true" aria-label="Month details">
+          <div className={`${styles.modal} ${styles.readMonthDetailModal}`}>
+            <div className={styles.readMonthDetailHeader}>
+              <div className={styles.readMonthDetailHeaderMain}>
+                <h3 className={styles.readMonthDetailTitle}>{formatMonthLabel(readMonthDetailMonthKey)}</h3>
+                <div className={styles.readMonthDetailTotal}>{formatMonthOrAnnualTotal(readSummary.totalsByMonth.get(readMonthDetailMonthKey) ?? 0, amountDisplayMode)}</div>
+              </div>
+              <button
+                type="button"
+                className={styles.readMonthDetailCloseButton}
+                onClick={() => setReadMonthDetailMonthKey(null)}
+                aria-label="Close month details"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.readMonthDetailBody}>
+              {readSummary.visibleAccounts.map((account) => {
+                const summary = readSummary.byAccountMonth.get(account.id)?.get(readMonthDetailMonthKey);
+                if (!summary) return null;
+
+                return (
+                  <div className={styles.readAccountBlock} key={`${readMonthDetailMonthKey}-${account.id}`}>
+                    <div className={styles.readAccountHeader}>
+                      <div className={styles.readAccountName}>{account.name}</div>
+                      <div className={styles.readAccountTotal}>{formatAccountSubtotal(summary.total, amountDisplayMode)}</div>
+                    </div>
+                    <ul className={`${styles.accountItemList} ${styles.readMonthDetailList}`}>
+                      {summary.groups.map((group, index) => (
+                        <li key={`${account.id}-${readMonthDetailMonthKey}-modal-${index}`}>
+                          {(() => {
+                            const groupKey = `${account.id}-${readMonthDetailMonthKey}-${group.description}`;
+                            const isExpandable = group.transactions.length > 1;
+                            const isExpanded = expandedReadGroupKeys.includes(groupKey);
+
+                            return (
+                              <>
+                                {isExpandable ? (
+                                  <button
+                                    type="button"
+                                    className={styles.readDetailGroupToggleRow}
+                                    onClick={() => {
+                                      setExpandedReadGroupKeys((prev) =>
+                                        prev.includes(groupKey)
+                                          ? prev.filter((key) => key !== groupKey)
+                                          : [...prev, groupKey]
+                                      );
+                                    }}
+                                  >
+                                    <span className={styles.readDetailGroupCaret}>{isExpanded ? "v" : ">"}</span>
+                                    <span className={styles.groupDescription}>{group.description}</span>
+                                    <span className={styles.groupAmount}>{formatAmount(group.amount)}</span>
+                                  </button>
+                                ) : (
+                                  <div className={styles.readDetailGroupRow}>
+                                    <span className={styles.readDetailGroupCaretPlaceholder} aria-hidden="true" />
+                                    <span className={styles.groupDescription}>{group.description}</span>
+                                    <span className={styles.groupAmount}>{formatAmount(group.amount)}</span>
+                                  </div>
+                                )}
+
+                                {isExpandable && isExpanded && (
+                                  <ul className={styles.groupTransactionsListIndented}>
+                                    {group.transactions.map((tx, txIndex) => (
+                                      <li className={styles.readDetailGroupChildRow} key={`${account.id}-${readMonthDetailMonthKey}-modal-${index}-${txIndex}`}>
+                                        <span className={styles.readDetailGroupCaretPlaceholder} aria-hidden="true" />
+                                        <span className={styles.groupDescription}>{tx.description}</span>
+                                        <span className={styles.groupAmount}>{formatAmount(tx.amount)}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {editAccount && (
         <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Edit account">
           <form className={styles.modal} onSubmit={handleEditAccount}>
@@ -1697,11 +1877,38 @@ function monthToStatementDate(value: string) {
   return `${value}-01`;
 }
 
+function formatMonthLabel(value: string) {
+  return new Date(`${value}-01T00:00:00`).toLocaleDateString(undefined, {
+    month: "long",
+  });
+}
+
 function formatAmount(value: number) {
   return value.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatAmountWhole(value: number) {
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
+function roundToNearest(value: number, step: number) {
+  return Math.round(value / step) * step;
+}
+
+function formatAccountSubtotal(value: number, mode: AmountDisplayMode) {
+  if (mode === "rounded") return formatAmountWhole(roundToNearest(value, 10));
+  return formatAmount(value);
+}
+
+function formatMonthOrAnnualTotal(value: number, mode: AmountDisplayMode) {
+  if (mode === "rounded") return formatAmountWhole(roundToNearest(value, 100));
+  return formatAmount(value);
 }
 
 async function parseStatementFile(file: File, fileDataUrl: string, parserSource?: string): Promise<ParsedStatementSummary> {
@@ -1767,7 +1974,7 @@ function parseStatementExpenseSummary(statement: AccountStatement): ParsedStatem
   if (statement.parsed_result) {
     try {
       const parsed = JSON.parse(statement.parsed_result);
-      const normalized = coerceParsedSummary(parsed);
+      const normalized = normalizeParserTestSummary(parsed);
       if (normalized) return normalized;
     } catch {
       // Ignore malformed stored parser output and fallback below.
@@ -1787,7 +1994,7 @@ function parseStatementExpenseSummary(statement: AccountStatement): ParsedStatem
 
     try {
       const data = JSON.parse(text);
-      return coerceParsedSummary(data);
+      return normalizeParserTestSummary(data);
     } catch {
       return null;
     }
@@ -1796,7 +2003,7 @@ function parseStatementExpenseSummary(statement: AccountStatement): ParsedStatem
   const text = decodeDataUrlText(statement.file_data_url);
   if (!text) return null;
 
-  return parseExpensesFromText(text);
+  return normalizeParserTestSummary(parseExpensesFromText(text));
 }
 
 function normalizeParserTestSummary(value: any): ParsedStatementSummary | null {
@@ -1809,22 +2016,27 @@ function normalizeParserTestSummary(value: any): ParsedStatementSummary | null {
     const sourceTransactions = group.transactions.length > 0 ? group.transactions : [{ description: group.description, amount: group.amount }];
 
     for (const transaction of sourceTransactions) {
-      const name = cleanParserTestDescription(transaction.description || group.description);
-      if (!name) continue;
+      const cleanedDescription = cleanParserTestDescription(transaction.description || group.description);
+      if (!cleanedDescription) continue;
+      if (isCardPaymentDescription(cleanedDescription)) continue;
 
-      const existing = aggregated.get(name) ?? {
-        description: name,
+      const groupName = canonicalizeVendorName(cleanedDescription);
+
+      const existing = aggregated.get(groupName) ?? {
+        description: groupName,
         amount: 0,
         transactions: [],
       };
 
       existing.amount += transaction.amount;
-      existing.transactions.push({ description: name, amount: transaction.amount });
-      aggregated.set(name, existing);
+      existing.transactions.push({ description: cleanedDescription, amount: transaction.amount });
+      aggregated.set(groupName, existing);
     }
   }
 
-  const groups = [...aggregated.values()].sort((a, b) => b.amount - a.amount);
+  const groups = [...aggregated.values()]
+    .filter((group) => Math.abs(group.amount) > 0.00001)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
   if (groups.length === 0) return null;
 
@@ -1874,9 +2086,47 @@ function cleanParserTestDescription(value: string) {
   }
 
   text = text.replace(/\s+(?:#\d+|\d{4,})$/g, "").trim();
+  text = text.replace(/\s+CREDIT$/i, "").trim();
   text = text.replace(/\s*[:\-–—]+\s*$/, "").trim();
 
   return text;
+}
+
+function isCardPaymentDescription(value: string) {
+  const lower = value.toLowerCase();
+  return [
+    "payment",
+    "pymt",
+    " pmt",
+    "online pmt",
+    "online pymt",
+    "capital one online",
+    "automatic payment",
+    "autopay",
+    "thank you",
+    "save on interest payment",
+    "minimum payment",
+  ].some((token) => lower.includes(token));
+}
+
+function canonicalizeVendorName(value: string) {
+  const lower = value.toLowerCase();
+
+  if (lower.includes("amazon")) return "AMAZON";
+  if (lower.includes("ebay")) return "EBAY";
+  if (lower.includes("wayfair")) return "WAYFAIR";
+  if (lower.includes("walmart") || lower.includes("wal-mart") || lower.includes("wm supercenter") || lower.includes("wm ")) return "WALMART";
+
+  const normalized = value
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s.&'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length === 0) return value.toUpperCase();
+
+  return tokens.slice(0, 3).join(" ");
 }
 
 function decodeDataUrlText(dataUrl: string) {
@@ -1901,7 +2151,7 @@ function parseExpensesFromText(text: string): ParsedStatementSummary {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  const excluded = ["payment", "autopay", "refund", "credit", "reversal", "returned", "return"];
+  const excluded = ["payment", "autopay", "save on interest payment", "minimum payment"];
   const amountRegex = /-?\$?\d{1,3}(?:,\d{3})*(?:\.\d{2})/g;
   const dateRegex = /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/;
   const items: ParsedExpenseItem[] = [];
@@ -1915,7 +2165,7 @@ function parseExpensesFromText(text: string): ParsedStatementSummary {
 
     const rawAmount = matches[matches.length - 1].replace(/[$,]/g, "");
     const amount = Number(rawAmount);
-    if (!Number.isFinite(amount) || amount <= 0) continue;
+    if (!Number.isFinite(amount) || amount === 0) continue;
 
     const withoutDate = line.replace(dateRegex, "").trim();
     const description = withoutDate.replace(/-?\$?\d{1,3}(?:,\d{3})*(?:\.\d{2})\s*$/, "").trim();
@@ -1945,16 +2195,20 @@ function coerceParsedSummary(value: any): ParsedStatementSummary | null {
     const groups = value.groups
       .map((group: any) => {
         const description = String(group?.description ?? "").trim();
-        const amount = Number(group?.amount ?? 0);
+        const rawAmount = Number(group?.amount ?? 0);
         const transactionsRaw = Array.isArray(group?.transactions) ? group.transactions : [];
         const transactions = transactionsRaw
           .map((tx: any) => ({
             description: String(tx?.description ?? description).trim() || description,
             amount: Number(tx?.amount ?? 0),
           }))
-          .filter((tx: ParsedExpenseItem) => tx.description.length > 0 && Number.isFinite(tx.amount) && tx.amount > 0);
+          .filter((tx: ParsedExpenseItem) => tx.description.length > 0 && Number.isFinite(tx.amount) && tx.amount !== 0);
 
-        if (!description || !Number.isFinite(amount) || amount <= 0) return null;
+        const amount = transactions.length > 0
+          ? transactions.reduce((sum, tx) => sum + tx.amount, 0)
+          : rawAmount;
+
+        if (!description || !Number.isFinite(amount) || amount === 0) return null;
 
         return {
           description,
@@ -1982,7 +2236,7 @@ function coerceParsedSummary(value: any): ParsedStatementSummary | null {
       description: String(item?.description ?? "").trim(),
       amount: Number(item?.amount ?? 0),
     }))
-    .filter((item: ParsedExpenseItem) => item.description.length > 0 && Number.isFinite(item.amount) && item.amount > 0);
+    .filter((item: ParsedExpenseItem) => item.description.length > 0 && Number.isFinite(item.amount) && item.amount !== 0);
 
   if (items.length === 0) return null;
 

@@ -8,16 +8,16 @@
 }
 
 .subnav {
-	height: 52px;
+	height: 56px;
 	border: none;
 	box-shadow: 0 1px 0 0 var(--border);
 	display: grid;
-	grid-template-columns: 104px 1fr 1fr 72px;
+	grid-template-columns: 1fr auto auto 1fr;
+	column-gap: 56px;
 	align-items: center;
 	justify-items: center;
-	font-family: var(--serif);
-	font-size: 24px;
-	padding: 0 16px;
+	padding: 0 24px;
+	background: #fff;
 }
 
 .subnav a {
@@ -25,17 +25,46 @@
 	text-decoration: none;
 }
 
+.backLink,
+.subnavLink {
+	border: 1px solid transparent;
+	border-radius: 999px;
+	padding: 6px 14px;
+	background: transparent;
+	transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.backLink:hover,
+.subnavLink:hover {
+	background: #f2f2f2;
+	border-color: #ececec;
+	transform: translateY(-1px);
+	box-shadow: 0 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+.backLink:active,
+.subnavLink:active {
+	transform: translateY(0) scale(0.985);
+	box-shadow: none;
+}
+
+.backLink:focus-visible,
+.subnavLink:focus-visible {
+	outline: 2px solid #bdbdbd;
+	outline-offset: 2px;
+}
+
 .backLink {
 	justify-self: start;
 	margin-left: 8px;
-	font-size: 20px;
-	line-height: 1;
+	font-family: var(--serif);
+	font-size: 24px;
 }
 
 .subnavLink {
 	justify-self: center;
-	font-size: 20px;
-	line-height: 1;
+	font-family: var(--serif);
+	font-size: 24px;
 }
 
 .profileLink {
@@ -48,7 +77,7 @@
 	height: 34px;
 	border-radius: 999px;
 	border: 1px solid var(--border);
-	background: #f7f7f7;
+	background: #efefef;
 }
 
 .profileIcon {
@@ -406,9 +435,10 @@
 	color: #027a48;
 }
 
-@media (max-width: 900px) {
-	.subnav {
-		font-size: 22px;
+@media (max-width: 1000px) {
+	.backLink,
+	.subnavLink {
+		font-size: 20px;
 	}
 
 	.toolbar {

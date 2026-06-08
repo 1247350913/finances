@@ -88,7 +88,7 @@ async function extractTextFromDataUrl(fileName: string, dataUrl: string) {
 }
 
 function parseCapitalOneExpenses(text: string) {
-  const excluded = ["payment", "autopay", "refund", "credit", "reversal", "returned", "return", "late fee", "due date", "interest charge", "fees for this period", "interest for this period"];
+  const excluded = ["payment", "autopay", "late fee", "due date", "interest charge", "fees for this period", "interest for this period"];
   const amountRegex = /-?\$?\d{1,3}(?:,\d{3})*(?:\.\d{2})/g;
   const dateRegex = /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g;
   const lines = text
@@ -107,7 +107,7 @@ function parseCapitalOneExpenses(text: string) {
 
     const rawAmount = matches[matches.length - 1].replace(/[$,]/g, "");
     const amount = Number(rawAmount);
-    if (!Number.isFinite(amount) || amount <= 0) continue;
+    if (!Number.isFinite(amount) || amount === 0) continue;
 
     const withoutDates = line.replace(dateRegex, " ").trim();
     const rawDescription = withoutDates.replace(/-?\$?\d{1,3}(?:,\d{3})*(?:\.\d{2})\s*$/, "").trim();

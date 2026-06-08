@@ -9,6 +9,7 @@ import { Expenses, ManageExpenses, Parser, Statements } from "../screens/Expense
 import { Entry } from "../screens/Entry";
 import { Home } from "../screens/Home";
 import { Overview } from "../screens/Overview";
+import { Profile } from "../screens/Profile";
 import { supabase } from "../lib/supabaseClient";
 
 export function App() {
@@ -58,6 +59,7 @@ export function App() {
         <Route path="/expenses/statements" element={isAuthenticated ? <Statements /> : <Navigate to="/" replace />} />
         <Route path="/entry" element={isAuthenticated ? <Entry /> : <Navigate to="/" replace />} />
         <Route path="/overview" element={isAuthenticated ? <Overview /> : <Navigate to="/" replace />} />
+        <Route path="/profile" element={isAuthenticated ? <Profile /> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to={isAuthenticated ? "/home" : "/"} replace />} />
       </Routes>
     </BrowserRouter>
