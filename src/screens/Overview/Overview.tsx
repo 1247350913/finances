@@ -1,5 +1,4 @@
-
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, ReactNode, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Footer } from "../../components/Footer";
 import { ASSETS } from "../../lib";
@@ -30,6 +29,37 @@ type OverviewWidgetPreference = {
   enabled: boolean;
 };
 
+type TitleAlign = "left" | "center" | "right";
+type LineStyle = "solid" | "dashed";
+type LegendPosition = "top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-center" | "bottom-right";
+
+type ChartSettings = {
+  titleEnabled: boolean;
+  titleText: string;
+  titleAlign: TitleAlign;
+  goalValue: number | null;
+  goalColor: string;
+  goalStyle: LineStyle;
+  lineColor: string;
+  lineStyle: LineStyle;
+  yAxisStep: number;
+  showYAxisTitle: boolean;
+  showYAxisLabels: boolean;
+  showXAxisTitle: boolean;
+  showXAxisLabels: boolean;
+  showLegend: boolean;
+  legendPosition: LegendPosition;
+  showDataPoints: boolean;
+  showPointValues: boolean;
+};
+
+type SeriesDefinition = {
+  name: string;
+  values: number[];
+  color: string;
+  style: LineStyle;
+};
+
 const DEFAULT_WIDGETS: OverviewWidgetPreference[] = [
   { key: "chart", enabled: true },
   { key: "captions", enabled: true },
@@ -38,8 +68,32 @@ const DEFAULT_WIDGETS: OverviewWidgetPreference[] = [
 
 const WIDGET_LABELS: Record<OverviewWidgetKey, string> = {
   chart: "Net Worth Graph",
-  captions: "Insight Captions",
+  captions: "MD editor",
   categories: "Category Year Table",
+};
+
+const DEFAULT_CAPTION_MD = "Enter your own custom text here";
+const TOTAL_SERIES = "Total";
+const SERIES_PALETTE = ["#c05621", "#2f855a", "#805ad5", "#d69e2e", "#0f766e", "#c53030"];
+
+const DEFAULT_CHART_SETTINGS: ChartSettings = {
+  titleEnabled: true,
+  titleText: "Net Worth Over Time",
+  titleAlign: "left",
+  goalValue: null,
+  goalColor: "#cb2e3e",
+  goalStyle: "dashed",
+  lineColor: "#1f5bcc",
+  lineStyle: "solid",
+  yAxisStep: 100000,
+  showYAxisTitle: true,
+  showYAxisLabels: true,
+  showXAxisTitle: true,
+  showXAxisLabels: true,
+  showLegend: true,
+  legendPosition: "top-right",
+  showDataPoints: false,
+  showPointValues: false,
 };
 
 function parseNumericValue(value: string) {
@@ -69,17 +123,197 @@ function isValidPreference(value: unknown): value is OverviewWidgetPreference[] 
   });
 }
 
+function coerceChartSettings(value: unknown): ChartSettings {
+  if (!value || typeof value !== "object") return DEFAULT_CHART_SETTINGS;
+
+  const candidate = value as Record<string, unknown>;
+  const goalValue = typeof candidate.goalValue === "number" && Number.isFinite(candidate.goalValue)
+    ? candidate.goalValue
+    : null;
+
+  return {
+    titleEnabled: typeof candidate.titleEnabled === "boolean" ? candidate.titleEnabled : DEFAULT_CHART_SETTINGS.titleEnabled,
+    titleText: typeof candidate.titleText === "string" && candidate.titleText.length > 0
+      ? candidate.titleText
+      : DEFAULT_CHART_SETTINGS.titleText,
+    titleAlign: candidate.titleAlign === "center" || candidate.titleAlign === "right" ? candidate.titleAlign : "left",
+    goalValue,
+    goalColor: typeof candidate.goalColor === "string" && candidate.goalColor.length > 0 ? candidate.goalColor : DEFAULT_CHART_SETTINGS.goalColor,
+    goalStyle: candidate.goalStyle === "solid" ? "solid" : "dashed",
+    lineColor: typeof candidate.lineColor === "string" && candidate.lineColor.length > 0 ? candidate.lineColor : DEFAULT_CHART_SETTINGS.lineColor,
+    lineStyle: candidate.lineStyle === "dashed" ? "dashed" : "solid",
+    yAxisStep: typeof candidate.yAxisStep === "number" && candidate.yAxisStep > 0 ? Math.floor(candidate.yAxisStep) : DEFAULT_CHART_SETTINGS.yAxisStep,
+    showYAxisTitle: typeof candidate.showYAxisTitle === "boolean" ? candidate.showYAxisTitle : DEFAULT_CHART_SETTINGS.showYAxisTitle,
+    showYAxisLabels: typeof candidate.showYAxisLabels === "boolean" ? candidate.showYAxisLabels : DEFAULT_CHART_SETTINGS.showYAxisLabels,
+    showXAxisTitle: typeof candidate.showXAxisTitle === "boolean" ? candidate.showXAxisTitle : DEFAULT_CHART_SETTINGS.showXAxisTitle,
+    showXAxisLabels: typeof candidate.showXAxisLabels === "boolean" ? candidate.showXAxisLabels : DEFAULT_CHART_SETTINGS.showXAxisLabels,
+    showLegend: typeof candidate.showLegend === "boolean" ? candidate.showLegend : DEFAULT_CHART_SETTINGS.showLegend,
+    legendPosition:
+      candidate.legendPosition === "top-left" ||
+      candidate.legendPosition === "top-center" ||
+      candidate.legendPosition === "top-right" ||
+      candidate.legendPosition === "bottom-left" ||
+      candidate.legendPosition === "bottom-center" ||
+      candidate.legendPosition === "bottom-right"
+        ? candidate.legendPosition
+        : DEFAULT_CHART_SETTINGS.legendPosition,
+    showDataPoints: typeof candidate.showDataPoints === "boolean" ? candidate.showDataPoints : DEFAULT_CHART_SETTINGS.showDataPoints,
+    showPointValues: typeof candidate.showPointValues === "boolean" ? candidate.showPointValues : DEFAULT_CHART_SETTINGS.showPointValues,
+  };
+}
+
+function renderInlineMarkdown(textValue: string) {
+  const tokens = textValue
+    .split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^\)]+\))/g)
+    .filter((token) => token.length > 0);
+
+  return tokens.map((token, index) => {
+    if (token.startsWith("**") && token.endsWith("**")) {
+      return <strong key={`b-${index}`}>{token.slice(2, -2)}</strong>;
+    }
+
+    if (token.startsWith("*") && token.endsWith("*")) {
+      return <em key={`i-${index}`}>{token.slice(1, -1)}</em>;
+    }
+
+    if (token.startsWith("`") && token.endsWith("`")) {
+      return <code key={`c-${index}`}>{token.slice(1, -1)}</code>;
+    }
+
+    const linkMatch = token.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
+    if (linkMatch) {
+      return (
+        <a key={`a-${index}`} href={linkMatch[2]} target="_blank" rel="noreferrer">
+          {linkMatch[1]}
+        </a>
+      );
+    }
+
+    return <Fragment key={`t-${index}`}>{token}</Fragment>;
+  });
+}
+
+function parseMarkdown(text: string): ReactNode[] {
+  const lines = text.split(/\r?\n/);
+  const nodes: ReactNode[] = [];
+  let unorderedListBuffer: string[] = [];
+  let orderedListBuffer: string[] = [];
+
+  function flushUnorderedList() {
+    if (unorderedListBuffer.length === 0) return;
+    nodes.push(
+      <ul key={`ul-${nodes.length}`}>
+        {unorderedListBuffer.map((item, index) => (
+          <li key={`li-${index}`}>{renderInlineMarkdown(item)}</li>
+        ))}
+      </ul>
+    );
+    unorderedListBuffer = [];
+  }
+
+  function flushOrderedList() {
+    if (orderedListBuffer.length === 0) return;
+    nodes.push(
+      <ol key={`ol-${nodes.length}`}>
+        {orderedListBuffer.map((item, index) => (
+          <li key={`oli-${index}`}>{renderInlineMarkdown(item)}</li>
+        ))}
+      </ol>
+    );
+    orderedListBuffer = [];
+  }
+
+  function flushLists() {
+    flushUnorderedList();
+    flushOrderedList();
+  }
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (line.length === 0) {
+      flushLists();
+      return;
+    }
+
+    if (line.startsWith("- ")) {
+      flushOrderedList();
+      unorderedListBuffer.push(line.slice(2));
+      return;
+    }
+
+    const numberedLine = line.match(/^\d+\.\s+(.+)$/);
+    if (numberedLine) {
+      flushUnorderedList();
+      orderedListBuffer.push(numberedLine[1]);
+      return;
+    }
+
+    flushLists();
+
+    if (line.startsWith("### ")) {
+      nodes.push(<h4 key={`h4-${index}`}>{renderInlineMarkdown(line.slice(4))}</h4>);
+      return;
+    }
+
+    if (line.startsWith("## ")) {
+      nodes.push(<h3 key={`h3-${index}`}>{renderInlineMarkdown(line.slice(3))}</h3>);
+      return;
+    }
+
+    if (line.startsWith("# ")) {
+      nodes.push(<h2 key={`h2-${index}`}>{renderInlineMarkdown(line.slice(2))}</h2>);
+      return;
+    }
+
+    nodes.push(<p key={`p-${index}`}>{renderInlineMarkdown(line)}</p>);
+  });
+
+  flushLists();
+  return nodes;
+}
+
+function normalizeWidgetPreferences(preferences: OverviewWidgetPreference[]) {
+  const active = preferences.filter((item) => item.enabled);
+  const inactive = preferences.filter((item) => !item.enabled);
+  return [...active, ...inactive];
+}
+
+function buildSectionSummary(selected: string[]) {
+  if (selected.length === 0) return TOTAL_SERIES;
+  if (selected.length === 1) return selected[0];
+  return `${selected.length} selected`;
+}
+
+function arraysEqual(a: string[], b: string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export function Overview() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingLayout, setIsSavingLayout] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
+  const [draggedWidgetKey, setDraggedWidgetKey] = useState<OverviewWidgetKey | null>(null);
+
+  const [savedWidgetPreferences, setSavedWidgetPreferences] = useState<OverviewWidgetPreference[]>(DEFAULT_WIDGETS);
+  const [draftWidgetPreferences, setDraftWidgetPreferences] = useState<OverviewWidgetPreference[]>(DEFAULT_WIDGETS);
+  const [savedCaptionMd, setSavedCaptionMd] = useState(DEFAULT_CAPTION_MD);
+  const [draftCaptionMd, setDraftCaptionMd] = useState(DEFAULT_CAPTION_MD);
+  const [savedChartSettings, setSavedChartSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
+  const [draftChartSettings, setDraftChartSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
+
   const [years, setYears] = useState<number[]>([]);
+  const [sectionNames, setSectionNames] = useState<string[]>([]);
   const [netWorthByYear, setNetWorthByYear] = useState<Map<number, number>>(new Map());
   const [groupTotalsByYear, setGroupTotalsByYear] = useState<Map<string, Map<number, number>>>(new Map());
-  const [accountCount, setAccountCount] = useState(0);
-  const [widgetPreferences, setWidgetPreferences] = useState<OverviewWidgetPreference[]>(DEFAULT_WIDGETS);
+
+  const [chartFilterStartYear, setChartFilterStartYear] = useState<string>("");
+  const [chartFilterEndYear, setChartFilterEndYear] = useState<string>("");
+  const [chartFilterSections, setChartFilterSections] = useState<string[]>([TOTAL_SERIES]);
+  const [tableFilterStartYear, setTableFilterStartYear] = useState<string>("");
+  const [tableFilterEndYear, setTableFilterEndYear] = useState<string>("");
+  const [tableFilterSections, setTableFilterSections] = useState<string[]>([TOTAL_SERIES]);
 
   useEffect(() => {
     void loadOverview();
@@ -96,7 +330,6 @@ export function Overview() {
       if (!userData.user) throw new Error("Please sign in again.");
 
       const userId = userData.user.id;
-
       const [{ data: groupsData, error: groupsError }, { data: accountsData, error: accountsError }, { data: valuesData, error: valuesError }, { data: settingsData, error: settingsError }] = await Promise.all([
         supabase.from("entry_groups").select("id,name").eq("user_id", userId).order("position", { ascending: true }),
         supabase.from("entry_accounts").select("id,group_id,name").eq("user_id", userId).order("position", { ascending: true }),
@@ -112,8 +345,6 @@ export function Overview() {
       const groups = (groupsData ?? []) as EntryGroupRow[];
       const accounts = (accountsData ?? []) as EntryAccountRow[];
       const values = (valuesData ?? []) as EntryValueRow[];
-
-      setAccountCount(accounts.length);
 
       const settingsRow = (settingsData ?? [])[0] as Record<string, any> | undefined;
       const startYear = typeof settingsRow?.start_year === "number" ? settingsRow.start_year : null;
@@ -145,40 +376,80 @@ export function Overview() {
         if (!nextYears.includes(valueRow.year)) continue;
 
         const amount = parseNumericValue(valueRow.value);
-        const currentNet = nextNetWorthByYear.get(valueRow.year) ?? 0;
-        nextNetWorthByYear.set(valueRow.year, currentNet + amount);
+        nextNetWorthByYear.set(valueRow.year, (nextNetWorthByYear.get(valueRow.year) ?? 0) + amount);
 
         const groupId = accountToGroup.get(valueRow.account_id);
         if (!groupId) continue;
 
         const groupName = groupNameById.get(groupId) ?? "Uncategorized";
         const groupYearMap = nextGroupTotalsByYear.get(groupName) ?? new Map<number, number>();
-        const currentGroupYearTotal = groupYearMap.get(valueRow.year) ?? 0;
-        groupYearMap.set(valueRow.year, currentGroupYearTotal + amount);
+        groupYearMap.set(valueRow.year, (groupYearMap.get(valueRow.year) ?? 0) + amount);
         nextGroupTotalsByYear.set(groupName, groupYearMap);
       }
 
       setNetWorthByYear(nextNetWorthByYear);
       setGroupTotalsByYear(nextGroupTotalsByYear);
+      setSectionNames([...nextGroupTotalsByYear.keys()].sort((a, b) => a.localeCompare(b)));
 
       const persistedWidgets = settingsRow?.overview_widgets;
-      if (isValidPreference(persistedWidgets)) {
-        const ensured = [...persistedWidgets];
-        for (const fallback of DEFAULT_WIDGETS) {
-          if (!ensured.some((item) => item.key === fallback.key)) {
-            ensured.push(fallback);
-          }
+      const nextWidgetPreferences = isValidPreference(persistedWidgets)
+        ? normalizeWidgetPreferences([...persistedWidgets])
+        : DEFAULT_WIDGETS;
+      for (const fallback of DEFAULT_WIDGETS) {
+        if (!nextWidgetPreferences.some((item) => item.key === fallback.key)) {
+          nextWidgetPreferences.push(fallback);
         }
-        setWidgetPreferences(ensured);
-      } else {
-        setWidgetPreferences(DEFAULT_WIDGETS);
       }
+
+      const nextCaption =
+        typeof settingsRow?.overview_caption_md === "string" && settingsRow.overview_caption_md.length > 0
+          ? settingsRow.overview_caption_md
+          : DEFAULT_CAPTION_MD;
+      const nextChartSettings = coerceChartSettings(settingsRow?.overview_chart_settings);
+
+      setSavedWidgetPreferences(nextWidgetPreferences);
+      setDraftWidgetPreferences(nextWidgetPreferences);
+      setSavedCaptionMd(nextCaption);
+      setDraftCaptionMd(nextCaption);
+      setSavedChartSettings(nextChartSettings);
+      setDraftChartSettings(nextChartSettings);
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load overview.");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  const activeWidgetPreferences = isCustomizeOpen ? draftWidgetPreferences : savedWidgetPreferences;
+  const activeCaptionMd = isCustomizeOpen ? draftCaptionMd : savedCaptionMd;
+  const activeChartSettings = isCustomizeOpen ? draftChartSettings : savedChartSettings;
+
+  const hasUnsavedChanges = useMemo(() => {
+    const widgetsChanged = JSON.stringify(savedWidgetPreferences) !== JSON.stringify(draftWidgetPreferences);
+    const captionChanged = savedCaptionMd !== draftCaptionMd;
+    const chartChanged = JSON.stringify(savedChartSettings) !== JSON.stringify(draftChartSettings);
+    return widgetsChanged || captionChanged || chartChanged;
+  }, [draftCaptionMd, draftChartSettings, draftWidgetPreferences, savedCaptionMd, savedChartSettings, savedWidgetPreferences]);
+
+  function openEdit() {
+    setDraftWidgetPreferences(normalizeWidgetPreferences(savedWidgetPreferences));
+    setDraftCaptionMd(savedCaptionMd);
+    setDraftChartSettings(savedChartSettings);
+    setIsCustomizeOpen(true);
+    setStatusMessage(null);
+  }
+
+  function closeEdit() {
+    if (hasUnsavedChanges) {
+      const shouldDiscard = window.confirm("Your changes will be discarded");
+      if (!shouldDiscard) return;
+    }
+    setDraftWidgetPreferences(normalizeWidgetPreferences(savedWidgetPreferences));
+    setDraftCaptionMd(savedCaptionMd);
+    setDraftChartSettings(savedChartSettings);
+    setIsCustomizeOpen(false);
+    setStatusMessage(null);
   }
 
   async function saveOverviewLayout() {
@@ -194,7 +465,9 @@ export function Overview() {
       const { error } = await supabase.from("entry_settings").upsert(
         {
           user_id: userData.user.id,
-          overview_widgets: widgetPreferences,
+          overview_widgets: normalizeWidgetPreferences(draftWidgetPreferences),
+          overview_caption_md: draftCaptionMd,
+          overview_chart_settings: draftChartSettings,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
@@ -202,8 +475,11 @@ export function Overview() {
 
       if (error) throw error;
 
-      setStatusMessage("Overview layout saved.");
+      setSavedWidgetPreferences(normalizeWidgetPreferences(draftWidgetPreferences));
+      setSavedCaptionMd(draftCaptionMd);
+      setSavedChartSettings(draftChartSettings);
       setIsCustomizeOpen(false);
+      setStatusMessage("Overview layout saved.");
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not save layout.");
@@ -212,67 +488,612 @@ export function Overview() {
     }
   }
 
-  const visibleWidgets = useMemo(() => widgetPreferences.filter((item) => item.enabled), [widgetPreferences]);
+  function reorderActiveWidgets(sourceKey: OverviewWidgetKey, targetKey: OverviewWidgetKey) {
+    setDraftWidgetPreferences((prev) => {
+      const activeKeys = prev.filter((item) => item.enabled).map((item) => item.key);
+      const fromIndex = activeKeys.findIndex((key) => key === sourceKey);
+      const toIndex = activeKeys.findIndex((key) => key === targetKey);
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
 
-  const netWorthSeries = useMemo(
-    () => years.map((year) => ({ year, value: netWorthByYear.get(year) ?? 0 })),
-    [netWorthByYear, years]
-  );
+      const nextActiveKeys = [...activeKeys];
+      const [moved] = nextActiveKeys.splice(fromIndex, 1);
+      nextActiveKeys.splice(toIndex, 0, moved);
 
-  const chartPoints = useMemo(() => {
-    if (netWorthSeries.length === 0) return "";
+      const activeMap = new Map(prev.filter((item) => item.enabled).map((item) => [item.key, item]));
+      const inactiveItems = prev.filter((item) => !item.enabled);
+      const reorderedActive = nextActiveKeys
+        .map((key) => activeMap.get(key))
+        .filter((item): item is OverviewWidgetPreference => Boolean(item));
+      return [...reorderedActive, ...inactiveItems];
+    });
+  }
 
-    const width = 880;
-    const height = 230;
-    const left = 42;
-    const right = 22;
-    const top = 16;
-    const bottom = 26;
-    const usableWidth = width - left - right;
-    const usableHeight = height - top - bottom;
-    const values = netWorthSeries.map((item) => item.value);
-    const maxValue = Math.max(1, ...values);
-    const minValue = Math.min(0, ...values);
-    const spread = Math.max(1, maxValue - minValue);
+  function setWidgetEnabled(key: OverviewWidgetKey, enabled: boolean) {
+    setDraftWidgetPreferences((prev) => {
+      const next = prev.map((item) => (item.key === key ? { ...item, enabled } : item));
+      return normalizeWidgetPreferences(next);
+    });
+  }
 
-    return netWorthSeries
-      .map((point, index) => {
-        const x = left + (netWorthSeries.length === 1 ? usableWidth / 2 : (index / (netWorthSeries.length - 1)) * usableWidth);
-        const ratio = (point.value - minValue) / spread;
-        const y = top + (1 - ratio) * usableHeight;
-        return `${x},${y}`;
-      })
-      .join(" ");
-  }, [netWorthSeries]);
-
-  const latestNetWorth = netWorthSeries[netWorthSeries.length - 1]?.value ?? 0;
-  const previousNetWorth = netWorthSeries[netWorthSeries.length - 2]?.value ?? latestNetWorth;
-  const netWorthDelta = latestNetWorth - previousNetWorth;
-
-  const topCategory = useMemo(() => {
-    let bestName = "None";
-    let bestValue = Number.NEGATIVE_INFINITY;
-
-    for (const [name, totalsMap] of groupTotalsByYear.entries()) {
-      const sum = [...totalsMap.values()].reduce((acc, value) => acc + value, 0);
-      if (sum > bestValue) {
-        bestValue = sum;
-        bestName = name;
-      }
+  function toggleMultiSelect(value: string, selected: string[], setSelected: (next: string[]) => void) {
+    const exists = selected.includes(value);
+    if (exists) {
+      const next = selected.filter((item) => item !== value);
+      setSelected(next.length > 0 ? next : [TOTAL_SERIES]);
+      return;
     }
 
-    return { name: bestName, value: Number.isFinite(bestValue) ? bestValue : 0 };
-  }, [groupTotalsByYear]);
+    if (value === TOTAL_SERIES) {
+      setSelected([TOTAL_SERIES, ...selected.filter((item) => item !== TOTAL_SERIES)]);
+      return;
+    }
 
-  function moveWidget(index: number, direction: -1 | 1) {
-    setWidgetPreferences((prev) => {
-      const target = index + direction;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(index, 1);
-      next.splice(target, 0, moved);
-      return next;
+    setSelected([...selected.filter((item) => item !== TOTAL_SERIES), value]);
+  }
+
+  const chartFilteredYears = useMemo(
+    () => years.filter((year) => {
+      if (chartFilterStartYear && year < Number(chartFilterStartYear)) return false;
+      if (chartFilterEndYear && year > Number(chartFilterEndYear)) return false;
+      return true;
+    }),
+    [chartFilterEndYear, chartFilterStartYear, years]
+  );
+
+  const chartSeriesDefinitions = useMemo<SeriesDefinition[]>(() => {
+    const selected = chartFilterSections.length > 0 ? chartFilterSections : [TOTAL_SERIES];
+    return selected.map((name, index) => {
+      const values = chartFilteredYears.map((year) => {
+        if (name === TOTAL_SERIES) return netWorthByYear.get(year) ?? 0;
+        return groupTotalsByYear.get(name)?.get(year) ?? 0;
+      });
+      return {
+        name,
+        values,
+        color: name === TOTAL_SERIES ? activeChartSettings.lineColor : SERIES_PALETTE[index % SERIES_PALETTE.length],
+        style: name === TOTAL_SERIES ? activeChartSettings.lineStyle : "solid",
+      };
     });
+  }, [activeChartSettings.lineColor, activeChartSettings.lineStyle, chartFilterSections, chartFilteredYears, groupTotalsByYear, netWorthByYear]);
+
+  const tableFilteredYears = useMemo(
+    () => years.filter((year) => {
+      if (tableFilterStartYear && year < Number(tableFilterStartYear)) return false;
+      if (tableFilterEndYear && year > Number(tableFilterEndYear)) return false;
+      return true;
+    }),
+    [tableFilterEndYear, tableFilterStartYear, years]
+  );
+
+  const tableRows = useMemo(() => {
+    const selected = tableFilterSections.length > 0 ? tableFilterSections : [TOTAL_SERIES];
+    return selected.map((name) => ({
+      label: name === TOTAL_SERIES ? "Total Net Worth" : name,
+      values: tableFilteredYears.map((year) => {
+        if (name === TOTAL_SERIES) return netWorthByYear.get(year) ?? 0;
+        return groupTotalsByYear.get(name)?.get(year) ?? 0;
+      }),
+    }));
+  }, [groupTotalsByYear, netWorthByYear, tableFilterSections, tableFilteredYears]);
+
+  const chartGeometry = useMemo(() => {
+    const width = 920;
+    const height = 320;
+    const left = 78;
+    const right = 24;
+    const top = 22;
+    const bottom = activeChartSettings.showXAxisTitle ? 70 : activeChartSettings.showXAxisLabels ? 52 : 26;
+    const usableWidth = width - left - right;
+    const usableHeight = height - top - bottom;
+
+    const sourceValues = chartSeriesDefinitions.flatMap((series) => series.values);
+    if (activeChartSettings.goalValue !== null) sourceValues.push(activeChartSettings.goalValue);
+    if (sourceValues.length === 0) sourceValues.push(0);
+
+    const minValueRaw = Math.min(0, ...sourceValues);
+    const maxValueRaw = Math.max(0, ...sourceValues);
+    const step = Math.max(1, Math.floor(activeChartSettings.yAxisStep));
+    const minValue = Math.floor(minValueRaw / step) * step;
+    const maxValue = Math.ceil(maxValueRaw / step) * step;
+    const spread = Math.max(step, maxValue - minValue);
+
+    const valueToY = (value: number) => top + (1 - (value - minValue) / spread) * usableHeight;
+    const indexToX = (index: number) =>
+      left + (chartFilteredYears.length <= 1 ? usableWidth / 2 : (index / (chartFilteredYears.length - 1)) * usableWidth);
+
+    const yTicks: number[] = [];
+    for (let tick = minValue; tick <= maxValue; tick += step) {
+      yTicks.push(tick);
+      if (yTicks.length > 24) break;
+    }
+
+    return {
+      width,
+      height,
+      left,
+      right,
+      top,
+      bottom,
+      yTicks,
+      valueToY,
+      indexToX,
+      goalY: activeChartSettings.goalValue === null ? null : valueToY(activeChartSettings.goalValue),
+      baselineY: height - bottom,
+    };
+  }, [activeChartSettings.goalValue, activeChartSettings.showXAxisLabels, activeChartSettings.showXAxisTitle, activeChartSettings.yAxisStep, chartFilteredYears.length, chartSeriesDefinitions]);
+
+  const legendPositionClass =
+    activeChartSettings.legendPosition === "top-left"
+      ? styles.legendTopLeft
+      : activeChartSettings.legendPosition === "top-center"
+        ? styles.legendTopCenter
+        : activeChartSettings.legendPosition === "top-right"
+          ? styles.legendTopRight
+          : activeChartSettings.legendPosition === "bottom-left"
+            ? styles.legendBottomLeft
+            : activeChartSettings.legendPosition === "bottom-center"
+              ? styles.legendBottomCenter
+              : styles.legendBottomRight;
+
+  function renderSectionSelector(selected: string[], setSelected: (next: string[]) => void, prefix: string) {
+    return (
+      <details className={styles.multiSelect}>
+        <summary>{buildSectionSummary(selected)}</summary>
+        <div className={styles.multiSelectPanel}>
+          {[TOTAL_SERIES, ...sectionNames].map((name) => {
+            const checked = selected.includes(name);
+            return (
+              <label key={`${prefix}-${name}`} className={styles.multiSelectOption}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleMultiSelect(name, selected, setSelected)}
+                />
+                <span>{name}</span>
+              </label>
+            );
+          })}
+        </div>
+      </details>
+    );
+  }
+
+  function renderChartWidget() {
+    return (
+      <section className={styles.widgetCard} key="chart-widget">
+        {isCustomizeOpen && (
+          <div className={styles.chartSettingsShell}>
+            <section className={styles.settingsGroup}>
+              <h3>Title</h3>
+              <div className={styles.settingsGrid}>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.titleEnabled}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, titleEnabled: event.target.checked }))}
+                  />
+                  Show Title
+                </label>
+                <label>
+                  Title Text
+                  <input
+                    type="text"
+                    value={draftChartSettings.titleText}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, titleText: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Title Align
+                  <select
+                    value={draftChartSettings.titleAlign}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, titleAlign: event.target.value as TitleAlign }))}
+                  >
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section className={styles.settingsGroup}>
+              <h3>Legend</h3>
+              <div className={styles.settingsGrid}>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.showLegend}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showLegend: event.target.checked }))}
+                  />
+                  Show Legend
+                </label>
+                <label>
+                  Legend Position
+                  <select
+                    value={draftChartSettings.legendPosition}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, legendPosition: event.target.value as LegendPosition }))}
+                  >
+                    <option value="top-left">Top Left</option>
+                    <option value="top-center">Top Center</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="bottom-center">Bottom Center</option>
+                    <option value="bottom-right">Bottom Right</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section className={styles.settingsGroup}>
+              <h3>Filters</h3>
+              <div className={styles.settingsGrid}>
+                <label>
+                  Time From
+                  <select value={chartFilterStartYear} onChange={(event) => setChartFilterStartYear(event.target.value)}>
+                    <option value="">All</option>
+                    {years.map((year) => (
+                      <option key={`chart-start-${year}`} value={String(year)}>{year}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Time To
+                  <select value={chartFilterEndYear} onChange={(event) => setChartFilterEndYear(event.target.value)}>
+                    <option value="">All</option>
+                    {years.map((year) => (
+                      <option key={`chart-end-${year}`} value={String(year)}>{year}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Section
+                  {renderSectionSelector(chartFilterSections, setChartFilterSections, "chart")}
+                </label>
+              </div>
+            </section>
+
+            <section className={styles.settingsGroup}>
+              <h3>Series</h3>
+              <div className={styles.settingsGrid}>
+                <label>
+                  Total Line Color
+                  <input
+                    type="color"
+                    value={draftChartSettings.lineColor}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, lineColor: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Total Line Style
+                  <select
+                    value={draftChartSettings.lineStyle}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, lineStyle: event.target.value as LineStyle }))}
+                  >
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                  </select>
+                </label>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.showDataPoints}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showDataPoints: event.target.checked }))}
+                  />
+                  Show Data Points
+                </label>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.showPointValues}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showPointValues: event.target.checked }))}
+                  />
+                  Show Point Values
+                </label>
+              </div>
+            </section>
+
+            <section className={styles.settingsGroup}>
+              <h3>Goal Line</h3>
+              <div className={styles.settingsGrid}>
+                <label>
+                  Goal Net Worth
+                  <input
+                    type="number"
+                    value={draftChartSettings.goalValue ?? ""}
+                    placeholder="No goal"
+                    onChange={(event) => {
+                      const raw = event.target.value.trim();
+                      const parsed = raw.length === 0 ? null : Number(raw);
+                      setDraftChartSettings((prev) => ({ ...prev, goalValue: parsed !== null && Number.isFinite(parsed) ? parsed : null }));
+                    }}
+                  />
+                </label>
+                <label>
+                  Goal Color
+                  <input
+                    type="color"
+                    value={draftChartSettings.goalColor}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, goalColor: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Goal Style
+                  <select
+                    value={draftChartSettings.goalStyle}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, goalStyle: event.target.value as LineStyle }))}
+                  >
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section className={styles.settingsGroup}>
+              <h3>Axes</h3>
+              <div className={styles.settingsGrid}>
+                <label>
+                  Y-Axis Step ($)
+                  <input
+                    type="number"
+                    min={1}
+                    value={draftChartSettings.yAxisStep}
+                    onChange={(event) => {
+                      const parsed = Number(event.target.value);
+                      if (!Number.isFinite(parsed) || parsed <= 0) return;
+                      setDraftChartSettings((prev) => ({ ...prev, yAxisStep: Math.floor(parsed) }));
+                    }}
+                  />
+                </label>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.showYAxisTitle}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showYAxisTitle: event.target.checked }))}
+                  />
+                  Y-Axis Title
+                </label>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.showYAxisLabels}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showYAxisLabels: event.target.checked }))}
+                  />
+                  Y-Axis Labels
+                </label>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.showXAxisTitle}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showXAxisTitle: event.target.checked }))}
+                  />
+                  X-Axis Title
+                </label>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.showXAxisLabels}
+                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showXAxisLabels: event.target.checked }))}
+                  />
+                  X-Axis Labels
+                </label>
+              </div>
+            </section>
+          </div>
+        )}
+
+        <div className={styles.chartWrap}>
+          {activeChartSettings.titleEnabled && (
+            <h2 className={`${styles.chartTitle} ${activeChartSettings.titleAlign === "center" ? styles.alignCenter : activeChartSettings.titleAlign === "right" ? styles.alignRight : styles.alignLeft}`}>
+              {activeChartSettings.titleText}
+            </h2>
+          )}
+
+          {activeChartSettings.showLegend && (
+            <div className={`${styles.chartLegendRow} ${legendPositionClass}`}>
+              {chartSeriesDefinitions.map((series) => (
+                <span key={`legend-inline-${series.name}`} className={styles.legendItem}>
+                  <span
+                    className={styles.legendSwatchLine}
+                    style={{ borderColor: series.color, borderStyle: series.style === "dashed" ? "dashed" : "solid" }}
+                  />
+                  {series.name}
+                </span>
+              ))}
+              {activeChartSettings.goalValue !== null && (
+                <span className={styles.legendItem}>
+                  <span
+                    className={styles.legendSwatchGoal}
+                    style={{ borderColor: activeChartSettings.goalColor, borderStyle: activeChartSettings.goalStyle === "dashed" ? "dashed" : "solid" }}
+                  />
+                  Goal
+                </span>
+              )}
+            </div>
+          )}
+
+          <svg className={styles.chartSvg} viewBox={`0 0 ${chartGeometry.width} ${chartGeometry.height}`} role="img" aria-label="Net worth trend line chart">
+            {chartGeometry.yTicks.map((tick) => (
+              <line
+                key={`grid-${tick}`}
+                x1={chartGeometry.left}
+                y1={chartGeometry.valueToY(tick)}
+                x2={chartGeometry.width - chartGeometry.right}
+                y2={chartGeometry.valueToY(tick)}
+                stroke="#e2e2e2"
+                strokeWidth="1"
+              />
+            ))}
+
+            <line x1={chartGeometry.left} y1={chartGeometry.baselineY} x2={chartGeometry.width - chartGeometry.right} y2={chartGeometry.baselineY} stroke="#d0d0d0" strokeWidth="1" />
+            <line x1={chartGeometry.left} y1={chartGeometry.top} x2={chartGeometry.left} y2={chartGeometry.baselineY} stroke="#d0d0d0" strokeWidth="1" />
+
+            {activeChartSettings.goalValue !== null && chartGeometry.goalY !== null && (
+              <line
+                x1={chartGeometry.left}
+                y1={chartGeometry.goalY}
+                x2={chartGeometry.width - chartGeometry.right}
+                y2={chartGeometry.goalY}
+                stroke={activeChartSettings.goalColor}
+                strokeWidth="2"
+                strokeDasharray={activeChartSettings.goalStyle === "dashed" ? "8 5" : undefined}
+              />
+            )}
+
+            {chartSeriesDefinitions.map((series) => {
+              const points = series.values.map((value, index) => ({ x: chartGeometry.indexToX(index), y: chartGeometry.valueToY(value), value }));
+              return (
+                <g key={`series-${series.name}`}>
+                  <polyline
+                    points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+                    fill="none"
+                    stroke={series.color}
+                    strokeWidth="2.5"
+                    strokeDasharray={series.style === "dashed" ? "8 5" : undefined}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+
+                  {activeChartSettings.showDataPoints && points.map((point, index) => (
+                    <g key={`point-${series.name}-${index}`}>
+                      <circle cx={point.x} cy={point.y} r="3.5" fill={series.color} />
+                      {activeChartSettings.showPointValues && (
+                        <text x={point.x} y={point.y - 10} textAnchor="middle" className={styles.pointValueLabel} fill={series.color}>
+                          ${formatMoney(point.value)}
+                        </text>
+                      )}
+                    </g>
+                  ))}
+                </g>
+              );
+            })}
+
+            {activeChartSettings.showYAxisLabels && chartGeometry.yTicks.map((tick) => (
+              <text
+                key={`tick-label-${tick}`}
+                x={chartGeometry.left - 10}
+                y={chartGeometry.valueToY(tick) + 4}
+                textAnchor="end"
+                className={styles.chartLabel}
+              >
+                ${formatMoney(tick)}
+              </text>
+            ))}
+
+            {activeChartSettings.showXAxisLabels && chartFilteredYears.map((year, index) => (
+              <text
+                key={`x-label-${year}`}
+                x={chartGeometry.indexToX(index)}
+                y={chartGeometry.baselineY + 18}
+                textAnchor="middle"
+                className={styles.chartLabel}
+              >
+                {year}
+              </text>
+            ))}
+
+            {activeChartSettings.showXAxisTitle && (
+              <text x={chartGeometry.width / 2} y={chartGeometry.height - 10} textAnchor="middle" className={styles.chartAxisTitle}>
+                Year
+              </text>
+            )}
+
+            {activeChartSettings.showYAxisTitle && (
+              <text x={18} y={chartGeometry.height / 2} textAnchor="middle" transform={`rotate(-90 18 ${chartGeometry.height / 2})`} className={styles.chartAxisTitle}>
+                Amount ($)
+              </text>
+            )}
+          </svg>
+        </div>
+
+      </section>
+    );
+  }
+
+  function renderMarkdownWidget() {
+    return (
+      <section className={styles.widgetCard} key="md-widget">
+        {isCustomizeOpen && <h2>MD editor</h2>}
+        <div className={styles.captionEditorWrap}>
+          {isCustomizeOpen ? (
+            <div className={styles.captionSplit}>
+              <textarea
+                className={styles.captionEditor}
+                value={draftCaptionMd}
+                onChange={(event) => setDraftCaptionMd(event.target.value)}
+                placeholder={DEFAULT_CAPTION_MD}
+              />
+              <div className={styles.captionText}>
+                {parseMarkdown((activeCaptionMd || DEFAULT_CAPTION_MD).trim().length > 0 ? activeCaptionMd : DEFAULT_CAPTION_MD)}
+              </div>
+            </div>
+          ) : (
+            <div className={styles.captionText}>
+              {parseMarkdown((activeCaptionMd || DEFAULT_CAPTION_MD).trim().length > 0 ? activeCaptionMd : DEFAULT_CAPTION_MD)}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderTableWidget() {
+    return (
+      <section className={styles.widgetCard} key="table-widget">
+        <h2>Net Worth By Category Over Years</h2>
+        <div className={styles.filterBar}>
+          <label>
+            Time From
+            <select value={tableFilterStartYear} onChange={(event) => setTableFilterStartYear(event.target.value)}>
+              <option value="">All</option>
+              {years.map((year) => (
+                <option key={`table-start-${year}`} value={String(year)}>{year}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Time To
+            <select value={tableFilterEndYear} onChange={(event) => setTableFilterEndYear(event.target.value)}>
+              <option value="">All</option>
+              {years.map((year) => (
+                <option key={`table-end-${year}`} value={String(year)}>{year}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Section
+            {renderSectionSelector(tableFilterSections, setTableFilterSections, "table")}
+          </label>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              {tableFilteredYears.map((year) => (
+                <th key={year}>{year}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {tableRows.map((row) => (
+              <tr key={row.label}>
+                <td>{row.label}</td>
+                {row.values.map((value, index) => (
+                  <td key={`${row.label}-${tableFilteredYears[index]}`}>${formatMoney(value)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    );
+  }
+
+  function renderWidget(key: OverviewWidgetKey) {
+    if (key === "chart") return renderChartWidget();
+    if (key === "captions") return renderMarkdownWidget();
+    return renderTableWidget();
   }
 
   return (
@@ -295,119 +1116,75 @@ export function Overview() {
               {errorMessage && <p className={styles.error}>{errorMessage}</p>}
               {statusMessage && <p className={styles.status}>{statusMessage}</p>}
             </div>
-            <button type="button" className={styles.customizeButton} onClick={() => setIsCustomizeOpen((prev) => !prev)}>
-              {isCustomizeOpen ? "Close Customize" : "Customize Overview"}
-            </button>
+            {!isCustomizeOpen && (
+              <button type="button" className={styles.customizeButton} onClick={openEdit}>
+                Edit
+              </button>
+            )}
+            {isCustomizeOpen && (
+              <div className={styles.topActions}>
+                <button type="button" className={styles.customizeButton} onClick={() => void saveOverviewLayout()} disabled={isSavingLayout}>
+                  {isSavingLayout ? "Saving..." : "Save"}
+                </button>
+                <button type="button" className={styles.customizeButton} onClick={closeEdit}>
+                  Close
+                </button>
+              </div>
+            )}
           </div>
 
           {isCustomizeOpen && (
             <section className={styles.customizePanel}>
-              {widgetPreferences.map((widget, index) => (
-                <div className={styles.widgetRow} key={widget.key}>
-                  <label className={styles.widgetToggle}>
-                    <input
-                      type="checkbox"
-                      checked={widget.enabled}
-                      onChange={() => {
-                        setWidgetPreferences((prev) =>
-                          prev.map((item) =>
-                            item.key === widget.key ? { ...item, enabled: !item.enabled } : item
-                          )
-                        );
-                      }}
-                    />
-                    <span>{WIDGET_LABELS[widget.key]}</span>
-                  </label>
-                  <div className={styles.widgetActions}>
-                    <button type="button" onClick={() => moveWidget(index, -1)} disabled={index === 0}>Up</button>
-                    <button type="button" onClick={() => moveWidget(index, 1)} disabled={index === widgetPreferences.length - 1}>Down</button>
+              <div className={styles.widgetChooserTable}>
+                <section className={styles.widgetChooserColumn}>
+                  <h3>Active widgets</h3>
+                  <div className={styles.widgetChooserRows}>
+                    {draftWidgetPreferences.filter((widget) => widget.enabled).map((widget) => (
+                      <div
+                        key={`active-${widget.key}`}
+                        className={`${styles.widgetChooserRow} ${styles.widgetChooserRowActive} ${draggedWidgetKey === widget.key ? styles.widgetTileDragging : ""}`}
+                        draggable
+                        onDragStart={() => setDraggedWidgetKey(widget.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => {
+                          if (draggedWidgetKey) {
+                            reorderActiveWidgets(draggedWidgetKey, widget.key);
+                          }
+                          setDraggedWidgetKey(null);
+                        }}
+                        onDragEnd={() => setDraggedWidgetKey(null)}
+                      >
+                        <span>{WIDGET_LABELS[widget.key]}</span>
+                        <div className={styles.widgetChooserRowActions}>
+                          <button type="button" onClick={() => setWidgetEnabled(widget.key, false)}>Remove</button>
+                          <span className={styles.widgetTileHint}>Drag</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
-              <button type="button" className={styles.saveLayoutButton} onClick={() => void saveOverviewLayout()} disabled={isSavingLayout}>
-                {isSavingLayout ? "Saving..." : "Save Layout"}
-              </button>
+                </section>
+
+                <section className={styles.widgetChooserColumn}>
+                  <h3>Available widgets</h3>
+                  <div className={styles.widgetChooserRows}>
+                    {draftWidgetPreferences.filter((widget) => !widget.enabled).map((widget) => (
+                      <div key={`inactive-${widget.key}`} className={styles.widgetChooserRow}>
+                        <span>{WIDGET_LABELS[widget.key]}</span>
+                        <div className={styles.widgetChooserRowActions}>
+                          <button type="button" onClick={() => setWidgetEnabled(widget.key, true)}>Add</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
             </section>
           )}
 
           {isLoading && <p className={styles.loadingText}>Loading overview...</p>}
+          {!isLoading && years.length === 0 && <p className={styles.emptyText}>No Entry history yet. Add values in Entry to populate your overview.</p>}
 
-          {!isLoading && years.length === 0 && (
-            <p className={styles.emptyText}>No Entry history yet. Add values in Entry to populate your overview.</p>
-          )}
-
-          {!isLoading && years.length > 0 && visibleWidgets.some((widget) => widget.key === "chart") && (
-            <section className={styles.widgetCard}>
-              <h2>Net Worth Over Time</h2>
-              <div className={styles.chartWrap}>
-                <svg className={styles.chartSvg} viewBox="0 0 880 230" role="img" aria-label="Net worth trend line chart">
-                  <line x1="42" y1="204" x2="858" y2="204" stroke="#d3d3d3" strokeWidth="1" />
-                  <line x1="42" y1="16" x2="42" y2="204" stroke="#d3d3d3" strokeWidth="1" />
-                  <polyline
-                    points={chartPoints}
-                    fill="none"
-                    stroke="#1f5bcc"
-                    strokeWidth="2.5"
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
-                  {netWorthSeries.map((point, index) => {
-                    const left = 42;
-                    const right = 22;
-                    const usableWidth = 880 - left - right;
-                    const x = left + (netWorthSeries.length === 1 ? usableWidth / 2 : (index / (netWorthSeries.length - 1)) * usableWidth);
-                    return (
-                      <text key={point.year} x={x} y={220} textAnchor="middle" className={styles.chartLabel}>
-                        {point.year}
-                      </text>
-                    );
-                  })}
-                </svg>
-              </div>
-            </section>
-          )}
-
-          {!isLoading && years.length > 0 && visibleWidgets.some((widget) => widget.key === "captions") && (
-            <section className={styles.widgetCard}>
-              <h2>Overview Captions</h2>
-              <div className={styles.captionText}>
-                <p>Current estimated net worth from Entry: ${formatMoney(latestNetWorth)}</p>
-                <p>
-                  Year-over-year change: {netWorthDelta >= 0 ? "+" : "-"}${formatMoney(Math.abs(netWorthDelta))}
-                </p>
-                <p>Largest category across the period: {topCategory.name} (${formatMoney(topCategory.value)})</p>
-                <p>Total tracked accounts: {accountCount}</p>
-              </div>
-            </section>
-          )}
-
-          {!isLoading && years.length > 0 && visibleWidgets.some((widget) => widget.key === "categories") && (
-            <section className={styles.widgetCard}>
-              <h2>Net Worth By Category Over Years</h2>
-              <div className={styles.tableWrap}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Category</th>
-                      {years.map((year) => (
-                        <th key={year}>{year}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...groupTotalsByYear.entries()].map(([groupName, totalsMap]) => (
-                      <tr key={groupName}>
-                        <td>{groupName}</td>
-                        {years.map((year) => (
-                          <td key={`${groupName}-${year}`}>${formatMoney(totalsMap.get(year) ?? 0)}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+          {!isLoading && years.length > 0 && activeWidgetPreferences.filter((item) => item.enabled).map((item) => renderWidget(item.key))}
         </section>
       </main>
 

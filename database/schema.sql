@@ -63,6 +63,8 @@ create table if not exists public.entry_settings (
   start_year integer,
   end_year integer,
   overview_widgets jsonb,
+  overview_chart_settings jsonb,
+  overview_caption_md text,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   check (
@@ -84,6 +86,8 @@ alter table public.accounts add column if not exists parser_file_name text;
 alter table public.accounts add column if not exists parser_source text;
 alter table public.accounts add column if not exists archived boolean not null default false;
 alter table public.entry_settings add column if not exists overview_widgets jsonb;
+alter table public.entry_settings add column if not exists overview_chart_settings jsonb;
+alter table public.entry_settings add column if not exists overview_caption_md text;
 
 alter table public.profiles enable row level security;
 alter table public.accounts enable row level security;
