@@ -1,0 +1,30 @@
+# fly.toml — Fly.io app configuration
+# Rename the app below to something unique on Fly.io, then run:
+#   fly launch --no-deploy   (first time, to link this config)
+#   fly deploy               (to deploy manually)
+
+app = "finances-app"          # <── change this to your chosen app name
+primary_region = "iad"        # closest Fly.io region to you (iad = US-East)
+
+[build]
+  # Fly reads the Dockerfile automatically; build args come from [build.args]
+  # VITE_ secrets are injected from Fly secrets at build time via CI
+  [build.args]
+    NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0       # scale to zero when idle (free tier friendly)
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

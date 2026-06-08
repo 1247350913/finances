@@ -1,0 +1,22 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
+
+# Dev/test artifacts
+scripts/__pycache__
+*.pyc
+*.pyo
+__pycache__
+
+# Editor
+.vscode
+.idea
+
+# Git
+.git
+.gitignore

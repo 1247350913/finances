@@ -1,0 +1,54 @@
+name: CI / CD — Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]   # CI only on PRs (no deploy)
+
+jobs:
+  # ── Job 1: Lint & Type-check ──────────────────────────────────────────────
+  check:
+    name: Type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm exec tsc --noEmit
+
+  # ── Job 2: Build & push Docker image, then deploy to Fly.io ──────────────
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    needs: check
+    # Only deploy on pushes to main, not on PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        # flyctl builds the Docker image remotely on Fly's builders and deploys.
+        # VITE_ build args are passed from GitHub Secrets so they get baked
+        # into the frontend bundle during the Docker build step.
+        run: |
+          flyctl deploy --remote-only \
+            --build-arg VITE_SUPABASE_URL="${{ secrets.VITE_SUPABASE_URL }}" \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
