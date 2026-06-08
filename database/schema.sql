@@ -14,6 +14,7 @@ create table if not exists public.accounts (
   card_image_data_url text,
   parser_file_name text,
   parser_source text,
+  archived boolean not null default false,
   created_at timestamptz default now()
 );
 
@@ -52,6 +53,7 @@ create table if not exists public.account_statements (
   statement_date date not null,
   file_name text not null,
   file_data_url text not null,
+  parsed_result text,
   created_at timestamptz default now(),
   unique (account_id, statement_date)
 );
@@ -75,9 +77,11 @@ create table if not exists public.entry_settings (
 );
 
 alter table public.entry_accounts add column if not exists coin_symbol text;
+alter table public.account_statements add column if not exists parsed_result text;
 alter table public.accounts add column if not exists card_image_data_url text;
 alter table public.accounts add column if not exists parser_file_name text;
 alter table public.accounts add column if not exists parser_source text;
+alter table public.accounts add column if not exists archived boolean not null default false;
 
 alter table public.profiles enable row level security;
 alter table public.accounts enable row level security;

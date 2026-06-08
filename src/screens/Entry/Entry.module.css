@@ -9,9 +9,10 @@
 
 .subnav {
 	height: 52px;
-	border-bottom: 1px solid var(--border);
+	border: none;
+	box-shadow: 0 1px 0 0 var(--border);
 	display: grid;
-	grid-template-columns: 72px 1fr 1fr 72px;
+	grid-template-columns: 104px 1fr 1fr 72px;
 	align-items: center;
 	justify-items: center;
 	font-family: var(--serif);
@@ -27,7 +28,7 @@
 .backLink {
 	justify-self: start;
 	margin-left: 8px;
-	font-size: 24px;
+	font-size: 20px;
 	line-height: 1;
 }
 

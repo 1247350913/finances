@@ -695,8 +695,8 @@ export function Entry() {
   return (
     <div className={styles.entryShell}>
       <header className={styles.subnav}>
-        <Link className={styles.backLink} to="/home" aria-label="Back to Home">
-		  ←
+        <Link className={styles.backLink} to="/home" aria-label="Home">
+		  Home
         </Link>
         <Link className={styles.subnavLink} to="/overview">Overview</Link>
         <Link className={styles.subnavLink} to="/expenses">Expenses</Link>

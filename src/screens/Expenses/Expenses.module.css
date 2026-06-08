@@ -2,24 +2,25 @@
   min-height: 100vh;
   display: grid;
   grid-template-rows: 1fr auto;
-  background: #f3f3f3;
+  background: #fff;
 }
 
 .main {
-  width: min(1280px, calc(100vw - 40px));
-  margin: 0 auto;
-  padding: 18px 0 24px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 24px 24px;
 }
 
 .subnav {
   height: 56px;
-  border: 1px solid var(--border);
+  border: none;
+  box-shadow: 0 1px 0 0 var(--border);
   display: grid;
-  grid-template-columns: 72px 1fr 1fr 72px;
+  grid-template-columns: 104px 1fr 1fr 72px;
   align-items: center;
   justify-items: center;
   padding: 0 14px;
-  background: #f8f8f8;
+  background: #fff;
 }
 
 .subnav a {
@@ -30,7 +31,7 @@
 .backLink {
   justify-self: start;
   margin-left: 8px;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .subnavLink {
@@ -60,11 +61,86 @@
 }
 
 .body {
-  border: 1px solid var(--border);
-  border-top: 0;
-  background: #f8f8f8;
   min-height: 640px;
-  padding: 30px 84px 46px;
+  padding: 22px 28px 46px;
+}
+
+.readToolbar {
+  display: flex;
+  justify-content: center;
+  margin: 14px 0 16px;
+}
+
+.allTimePill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-family: var(--sans);
+  font-size: 12px;
+  background: #efefef;
+}
+
+.expenseScroller {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.expenseGrid {
+  min-width: max-content;
+  display: grid;
+  gap: 0;
+}
+
+.gridHeaderCell,
+.rowTitle,
+.totalCell,
+.accountMonthCell {
+  padding: 14px 14px;
+  border-bottom: 1px solid #ececec;
+}
+
+.gridHeaderCell {
+  font-family: var(--serif);
+  font-size: 34px;
+}
+
+.rowTitle {
+  font-family: var(--serif);
+  font-size: 34px;
+  align-self: start;
+}
+
+.totalCell {
+  font-family: var(--serif);
+  font-size: 32px;
+}
+
+.accountMonthCell {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 90px;
+}
+
+.accountMonthTotal {
+  font-family: var(--serif);
+  font-size: 30px;
+}
+
+.accountItemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.accountItemList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--serif);
+  font-size: 22px;
 }
 
 .bannerRow {
@@ -178,11 +254,31 @@
   gap: 22px;
 }
 
-.cardActions a {
+.cardActions a,
+.parserModeLink {
   color: var(--ink);
   text-decoration: underline;
   font-family: var(--serif);
   font-size: 32px;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.parserModeLinkActive {
+  color: #0f4bc9;
+  text-decoration-thickness: 2px;
+}
+
+.activeCard {
+  border-color: #98afe6;
+  box-shadow: inset 0 0 0 2px #dce6ff;
+}
+
+.inactiveCard {
+  opacity: 0.42;
+  filter: grayscale(0.28);
+  box-shadow: inset 0 0 0 999px rgba(0, 0, 0, 0.08);
 }
 
 .addTile {
@@ -202,6 +298,75 @@
 
 .panel {
   margin-top: 30px;
+}
+
+.parserWorkbench {
+  margin-top: 26px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.parserWorkbenchHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: #f7f7f7;
+}
+
+.parserTabs {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.parserTab {
+  border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  background: #ececec;
+  color: #333;
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 6px 10px;
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.parserTabActive {
+  background: #fff;
+  border-bottom-color: #fff;
+}
+
+.uploadNewButton {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.uploadNewButton input {
+  display: none;
+}
+
+.parserWorkbenchCode {
+  margin: 0;
+  max-height: 460px;
+  overflow: auto;
+  padding: 16px;
+  white-space: pre;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  background: #fbfbfb;
 }
 
 .panelHead {
@@ -245,6 +410,138 @@
   gap: 22px;
 }
 
+/* Statements workbench */
+
+.statementsWorkbench {
+  margin-top: 26px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.statementsWorkbenchHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #f7f7f7;
+}
+
+.statementsWorkbenchTitle {
+  font-family: var(--serif);
+  font-size: 20px;
+}
+
+.statementsEmpty {
+  margin: 0;
+  padding: 32px;
+  font-family: var(--serif);
+  font-size: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.statementsYearBlock {
+  padding: 18px 20px;
+  border-bottom: 1px solid #ececec;
+}
+
+.statementsYearBlock:last-child {
+  border-bottom: none;
+}
+
+.statementsYearLabel {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #444;
+}
+
+.statementsMonthRow {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.statementsMonthCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.statementsMonthLabel {
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.statementThumbLink {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #f4f4f4;
+  transition: box-shadow 0.15s;
+  padding: 0;
+  cursor: pointer;
+}
+
+.statementThumbLink:hover {
+  box-shadow: 0 0 0 2px #98afe6;
+}
+
+.statementThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.statementThumbPdf {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #f9f9f9;
+}
+
+.statementThumbPdf span {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  color: #555;
+  letter-spacing: 0.04em;
+}
+
+.statementThumbPdf small {
+  font-family: var(--sans);
+  font-size: 9px;
+  color: #999;
+  text-align: center;
+  padding: 0 4px;
+  word-break: break-all;
+  max-height: 2.4em;
+  overflow: hidden;
+}
+
+.statementThumbEmpty {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 6px;
+  border: 1px dashed #d8d8d8;
+  background: transparent;
+}
+
 .monthTile {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -272,7 +569,7 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.18);
+  background: rgba(0, 0, 0, 0.26);
   display: grid;
   place-items: center;
   padding: 24px;
@@ -310,10 +607,42 @@
   background: #f7f7f7;
 }
 
-.downloadTemplateLink {
+.required {
+  color: #c0392b;
+  font-style: normal;
+}
+
+.exampleParserRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -6px;
+}
+
+.exampleParserOpen {
+  border: none;
+  background: none;
+  padding: 0;
   font-family: var(--serif);
-  font-size: 18px;
+  font-size: 17px;
   color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.exampleParserDownload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #f7f7f7;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .fieldHint {
@@ -326,8 +655,15 @@
 .modalActions {
   margin-top: 8px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
+}
+
+.modalActionsLeft,
+.modalActionsRight {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .modalActions button {
@@ -337,6 +673,36 @@
   font-family: var(--sans);
   font-size: 13px;
   padding: 6px 14px;
+  cursor: pointer;
+}
+
+button,
+a[role="button"],
+.manageButton,
+.exampleParserOpen,
+.exampleParserDownload,
+.allTimePill {
+  cursor: pointer;
+}
+
+.dangerButton {
+  border-color: #c0392b !important;
+  color: #c0392b;
+}
+
+.archiveButton {
+  border-color: #8a6a00 !important;
+  color: #7a5c00;
+}
+
+.editCardImagePreview {
+  width: 100%;
+  max-height: 72px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f0f0f0;
+  margin-bottom: 6px;
 }
 
 @media (max-width: 1000px) {
@@ -346,6 +712,17 @@
 
   .body {
     padding: 20px 20px 32px;
+  }
+
+  .gridHeaderCell,
+  .rowTitle,
+  .totalCell,
+  .accountMonthTotal {
+    font-size: 24px;
+  }
+
+  .accountItemList li {
+    font-size: 16px;
   }
 
   .cardName {
