@@ -4,11 +4,7 @@ import { PDFParse } from "pdf-parse";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { join } from "node:path";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3001);
@@ -234,16 +230,6 @@ async function runCustomPythonParser(parserSource: string, statementText: string
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
-}
-
-// In production the Express server serves the built Vite frontend as static files
-if (process.env.NODE_ENV === "production") {
-  const distPath = join(__dirname, "../dist");
-  app.use(express.static(distPath));
-  // SPA catch-all — must be after all API routes
-  app.get("*", (_req, res) => {
-    res.sendFile(join(distPath, "index.html"));
-  });
 }
 
 app.listen(PORT, () => {
