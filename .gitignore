@@ -7,3 +7,6 @@ node_modules
 .env.development
 .env.production
 .env.*.local
+
+# cloud keys
+gcp-sa-key.json

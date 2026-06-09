@@ -13,7 +13,28 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT ?? 3001);
 
-app.use(cors());
+// In production, restrict CORS to known frontend origins only.
+// ALLOWED_ORIGINS is a comma-separated list set via Cloud Run env var.
+// In dev, all origins are allowed for convenience.
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+  : null;
+
+app.use(
+  cors({
+    origin: allowedOrigins
+      ? (origin, callback) => {
+          // Allow requests with no origin (server-to-server, curl, health checks)
+          if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+          } else {
+            callback(new Error(`CORS: origin ${origin} not allowed`));
+          }
+        }
+      : true,
+    methods: ["GET", "POST"],
+  })
+);
 app.use(express.json({ limit: "25mb" }));
 
 app.get("/api/health", (_req, res) => {

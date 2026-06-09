@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Footer } from "../../components/Footer";
-import { ASSETS } from "../../lib";
+import { ASSETS, apiUrl } from "../../lib";
 import { supabase } from "../../lib/supabaseClient";
 import exampleParserSource from "./example_expense_parser.py?raw";
 import styles from "./Expenses.module.css";
@@ -1932,7 +1932,7 @@ async function runCustomParserTest(
   fileName: string,
   fileDataUrl: string
 ): Promise<ParsedStatementSummary> {
-  const response = await fetch("/api/parse/custom-parser-test", {
+  const response = await fetch(apiUrl("/api/parse/custom-parser-test"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ parserSource, fileName, fileDataUrl }),
@@ -1956,7 +1956,7 @@ async function runCustomParserTest(
 
 async function parseCapitalOneStatement(fileName: string, fileDataUrl: string): Promise<ParsedStatementSummary | null> {
   try {
-    const response = await fetch("/api/parse/capital-one", {
+    const response = await fetch(apiUrl("/api/parse/capital-one"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, fileDataUrl }),
