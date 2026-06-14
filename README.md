@@ -1,6 +1,6 @@
-# Finances
+# finances
 
-**Live App:** https://finances.lnks.info
+**Live Production App:** https://finances.lnks.info
 
 A personal finance management platform for tracking expenses, organizing bank statements, and gaining insights into your spending habits.
 
