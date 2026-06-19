@@ -1,13 +1,20 @@
 import express from "express";
 import cors from "cors";
+import { config as loadEnv } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
 import { PDFParse } from "pdf-parse";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+loadEnv({ path: ".env.development" });
+loadEnv();
+
 const app = express();
 const PORT = Number(process.env.PORT ?? 3001);
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabasePublishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // In production, restrict CORS to known frontend origins only.
 // ALLOWED_ORIGINS is a comma-separated list set via Cloud Run env var.
@@ -35,6 +42,29 @@ app.use(express.json({ limit: "25mb" }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, message: "Backend server is running" });
+});
+app.get("/api/heartbeat", async (_req, res) => {
+  try {
+    if (!supabaseUrl || !supabasePublishableKey) {
+      res.status(500).json({
+        ok: false,
+        message: "Missing Supabase environment variables for heartbeat checks.",
+      });
+      return;
+    }
+
+    const supabase = createClient(supabaseUrl, supabasePublishableKey);
+    const { data, error } = await supabase.from("heartbeat").select("id, checked_at").eq("id", 1).maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ ok: true, heartbeat: data ?? null });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ ok: false, message: error?.message ?? "Could not reach Supabase." });
+  }
 });
 app.get("/", (_req, res) => {
   res.json({ ok: true, message: "Backend server root found" });

@@ -2197,7 +2197,7 @@ function coerceParsedSummary(value: any): ParsedStatementSummary | null {
         const description = String(group?.description ?? "").trim();
         const rawAmount = Number(group?.amount ?? 0);
         const transactionsRaw = Array.isArray(group?.transactions) ? group.transactions : [];
-        const transactions = transactionsRaw
+        const transactions: ParsedExpenseItem[] = transactionsRaw
           .map((tx: any) => ({
             description: String(tx?.description ?? description).trim() || description,
             amount: Number(tx?.amount ?? 0),

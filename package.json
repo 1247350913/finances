@@ -8,8 +8,7 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
-    "preview": "vite preview",
-    "test:parser": "python scripts/expense_parser_tester.py"
+    "preview": "vite preview"
   },
   "keywords": [],
   "author": "",
