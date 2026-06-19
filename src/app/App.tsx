@@ -19,11 +19,23 @@ export function App() {
   useEffect(() => {
     let active = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      setSession(data.session);
-      setAuthReady(true);
-    });
+    const loadInitialSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!active) return;
+        setSession(data.session);
+      } catch (error) {
+        if (!active) return;
+        console.error("Failed to load initial Supabase session", error);
+        setSession(null);
+      } finally {
+        if (active) {
+          setAuthReady(true);
+        }
+      }
+    };
+
+    void loadInitialSession();
 
     const {
       data: { subscription },

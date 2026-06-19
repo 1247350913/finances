@@ -58,9 +58,13 @@ export function Login() {
         <AuthCard>
           <h1 className={styles.brandTitle}>finances</h1>
           <h2 className={styles.smallHeading}>Sign In</h2>
-          <form className={styles.formStack} onSubmit={handleSubmit}>
+          <form className={styles.signUpStack} onSubmit={handleSubmit}>
+            <p className={styles.label}>email</p>
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)}/>
+
+            <p className={styles.label}>password</p>
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)}/>
+
             <div className={styles.buttonRow}>
               <Button type="submit" text={loading ? "Signing In..." : "Sign In"} disabled={!formValid} />
             </div>
