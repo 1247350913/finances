@@ -82,7 +82,6 @@ pnpm build
 │   └── styles/           # Global stylesheets
 ├── server/                # Express backend server
 ├── database/              # Database schema and migrations
-├── scripts/               # Utility scripts (expense parser tester)
 ├── package.json           # Project dependencies
 └── vite.config.ts         # Vite configuration
 ```
@@ -106,9 +105,6 @@ pnpm build
 
 # Preview production build
 pnpm preview
-
-# Test expense parser locally
-pnpm test:parser
 ```
 
 ### Authentication Flow
@@ -127,36 +123,21 @@ See [src/screens/Auth/](src/screens/Auth/) for the authentication screens.
 
 The app includes a powerful expense parser that can extract transaction data from bank statements in multiple formats (PDF, CSV, text).
 
-#### Local Testing
+#### Testing Parsers In The UI
 
-If your statement parsing looks incorrect in the UI, test the parser locally first:
+Use the built-in parser test flow in the Expenses screen:
 
-```bash
-python scripts/expense_parser_tester.py --parser path/to/my_parser.py --statement path/to/statement.txt
-```
+1. Go to Expenses > Manage.
+2. Select an account.
+3. Open Parser.
+4. Click Test Parser.
+5. Upload a statement file and review the grouped results.
 
-**Features:**
-- Validates parser output shape and decimal amounts
-- Checks for common issues (count/total mismatches, empty fields)
-- Provides expense row preview
-- Outputs full JSON for debugging
-
-**Options:**
-```bash
-# PDF support (requires pypdf)
-pip install pypdf
-python scripts/expense_parser_tester.py --parser path/to/my_parser.py --statement path/to/statement.pdf
-
-# Compare with expected output
-python scripts/expense_parser_tester.py --parser path/to/my_parser.py --statement path/to/statement.txt --expected path/to/expected.json
-
-# Control preview rows
-python scripts/expense_parser_tester.py --parser path/to/my_parser.py --statement path/to/statement.txt --show 50
-```
+This uses the same frontend + backend execution path as normal statement parsing.
 
 #### Creating a Custom Parser
 
-Your parser must export a `parse_statement_text(statement_text)` function that returns a normalized expense structure. See the tester output for the expected JSON schema.
+Your parser must export a `parse_statement_text(statement_text)` function that returns a normalized expense structure compatible with the parser test modal and statement parsing endpoints.
 
 ### Supported Statement Formats
 
@@ -168,6 +149,8 @@ Your parser must export a `parse_statement_text(statement_text)` function that r
 ## Database
 
 Database schema and migrations are stored in the [database/](database/) directory. Run migrations as part of your deployment process.
+
+The backend exposes a Supabase heartbeat endpoint at `/api/heartbeat`. Hitting it weekly is enough to confirm your dev and prod Supabase projects are still reachable. A cron job or uptime monitor can call the dev and prod URLs separately.
 
 ## Contributing
 
