@@ -107,6 +107,24 @@ pnpm build
 pnpm preview
 ```
 
+### Development Workflow
+
+This project follows a lightweight issue-driven workflow:
+
+1. Ideas
+2. Issues
+3. Sub-issues (optional)
+4. Branch
+5. Development
+6. Commit(s)
+7. PR
+8. Squash merge
+9. Delete branch
+
+Optional release step:
+
+- Tag commits for release versions when needed.
+
 ### Authentication Flow
 
 The app uses Supabase for secure email-based authentication:
