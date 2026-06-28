@@ -134,9 +134,21 @@ Use the built-in parser test flow in the Expenses screen:
 5. Upload a statement file and review the grouped results.
 
 This uses the same frontend + backend execution path as normal statement parsing.
+#### Testing Parsers In The UI
+
+Use the built-in parser test flow in the Expenses screen:
+
+1. Go to Expenses > Manage.
+2. Select an account.
+3. Open Parser.
+4. Click Test Parser.
+5. Upload a statement file and review the grouped results.
+
+This uses the same frontend + backend execution path as normal statement parsing.
 
 #### Creating a Custom Parser
 
+Your parser must export a `parse_statement_text(statement_text)` function that returns a normalized expense structure compatible with the parser test modal and statement parsing endpoints.
 Your parser must export a `parse_statement_text(statement_text)` function that returns a normalized expense structure compatible with the parser test modal and statement parsing endpoints.
 
 ### Supported Statement Formats

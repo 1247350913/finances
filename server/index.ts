@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import { config as loadEnv } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { config as loadEnv } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
 import { PDFParse } from "pdf-parse";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -15,6 +17,8 @@ const app = express();
 const PORT = Number(process.env.PORT ?? 3001);
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabasePublishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // In production, restrict CORS to known frontend origins only.
 // ALLOWED_ORIGINS is a comma-separated list set via Cloud Run env var.
