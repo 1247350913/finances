@@ -10,11 +10,9 @@ export function Header({ homeLink = "/" }: Props) {
   return (
     <header className={styles.header}>
       <Link className={styles.logo} to={homeLink}>finances</Link>
-      <button className={styles.languageButton} type="button" aria-label="Change language">
-        <img className={styles.flag} src={ASSETS.flag} alt="Planet"></img>
-        <span>English</span>
-        <span className={styles.chevron}>^</span>
-      </button>
+      <Link className={styles.profileLink} to="/profile" aria-label="Profile">
+        <img className={styles.profileIcon} src={ASSETS.defaultProfileIcon} alt="" aria-hidden="true" />
+      </Link>
     </header>
   );
 }
