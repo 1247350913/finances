@@ -230,6 +230,13 @@ export function SignUp() {
     }
   }
 
+  function handleBackToSignUp() {
+    setStep("signup");
+    setVerificationCode("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
+  }
+
   return (
     <ScreenShell>
       <div className={styles.centerPage}>
@@ -293,6 +300,10 @@ export function SignUp() {
               <div className={styles.buttonRow}>
                 <button className={styles.textButton} type="button" onClick={handleResendCode} disabled={loading}>Resend code</button>
               </div>
+
+              <div className={styles.buttonRow}>
+                <button className={styles.textButton} type="button" onClick={handleBackToSignUp} disabled={loading}>Back to Sign Up</button>
+              </div>
             </form>
           )}
 
@@ -305,6 +316,12 @@ export function SignUp() {
 
           {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
           {successMessage && step !== "success" && <p className={styles.successMessage}>{successMessage}</p>}
+
+          {step !== "success" && (
+            <div className={styles.textLinks}>
+              <Link to="/">Already have an account? Sign In</Link>
+            </div>
+          )}
         </AuthCard>
       </div>
     </ScreenShell>
