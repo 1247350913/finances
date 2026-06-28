@@ -1,8 +1,8 @@
-# finances
+# Finances
 
-**Live Production App:** https://finances.lnks.info
+**Live App:** https://finances.lnks.info
 
-A personal finance management platform for tracking expenses, organizing bank statements, and gaining insights into your spending habits.
+A personal finance management platform for tracking expenses, monitoring account balances, organizing financial records, and visualizing financial history.
 
 ## Features
 
@@ -150,7 +150,7 @@ Your parser must export a `parse_statement_text(statement_text)` function that r
 
 Database schema and migrations are stored in the [database/](database/) directory. Run migrations as part of your deployment process.
 
-The backend exposes a Supabase heartbeat endpoint at `/api/heartbeat`. Hitting it weekly is enough to confirm your dev and prod Supabase projects are still reachable. A cron job or uptime monitor can call the dev and prod URLs separately.
+The backend exposes a Supabase heartbeat endpoint at `/api/heartbeat`. Hitting it weekly updates `heartbeat.checked_at`, so you can verify the last successful run in Supabase for both dev and prod. Configure your server runtime with `SUPABASE_SERVICE_ROLE_KEY`, then have a cron job or uptime monitor call the dev and prod URLs separately.
 
 ## Contributing
 

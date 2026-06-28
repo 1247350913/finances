@@ -14,7 +14,7 @@ loadEnv();
 const app = express();
 const PORT = Number(process.env.PORT ?? 3001);
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabasePublishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // In production, restrict CORS to known frontend origins only.
 // ALLOWED_ORIGINS is a comma-separated list set via Cloud Run env var.
@@ -45,22 +45,27 @@ app.get("/api/health", (_req, res) => {
 });
 app.get("/api/heartbeat", async (_req, res) => {
   try {
-    if (!supabaseUrl || !supabasePublishableKey) {
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
       res.status(500).json({
         ok: false,
-        message: "Missing Supabase environment variables for heartbeat checks.",
+        message: "Missing Supabase server environment variables for heartbeat checks.",
       });
       return;
     }
 
-    const supabase = createClient(supabaseUrl, supabasePublishableKey);
-    const { data, error } = await supabase.from("heartbeat").select("id, checked_at").eq("id", 1).maybeSingle();
+    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const checkedAt = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("heartbeat")
+      .upsert({ id: 1, checked_at: checkedAt }, { onConflict: "id" })
+      .select("id, checked_at")
+      .single();
 
     if (error) {
       throw error;
     }
 
-    res.json({ ok: true, heartbeat: data ?? null });
+    res.json({ ok: true, heartbeat: data ?? { id: 1, checked_at: checkedAt } });
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ ok: false, message: error?.message ?? "Could not reach Supabase." });
