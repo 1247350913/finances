@@ -1,8 +1,8 @@
-# finances
+# Finances
 
-**Live Production App:** https://finances.lnks.info
+**Live App:** https://finances.lnks.info
 
-A personal finance management platform for tracking expenses, organizing bank statements, and gaining insights into your spending habits.
+A personal finance management platform for tracking expenses, monitoring account balances, organizing financial records, and visualizing financial history.
 
 ## Features
 
@@ -134,9 +134,21 @@ Use the built-in parser test flow in the Expenses screen:
 5. Upload a statement file and review the grouped results.
 
 This uses the same frontend + backend execution path as normal statement parsing.
+#### Testing Parsers In The UI
+
+Use the built-in parser test flow in the Expenses screen:
+
+1. Go to Expenses > Manage.
+2. Select an account.
+3. Open Parser.
+4. Click Test Parser.
+5. Upload a statement file and review the grouped results.
+
+This uses the same frontend + backend execution path as normal statement parsing.
 
 #### Creating a Custom Parser
 
+Your parser must export a `parse_statement_text(statement_text)` function that returns a normalized expense structure compatible with the parser test modal and statement parsing endpoints.
 Your parser must export a `parse_statement_text(statement_text)` function that returns a normalized expense structure compatible with the parser test modal and statement parsing endpoints.
 
 ### Supported Statement Formats
@@ -150,7 +162,7 @@ Your parser must export a `parse_statement_text(statement_text)` function that r
 
 Database schema and migrations are stored in the [database/](database/) directory. Run migrations as part of your deployment process.
 
-The backend exposes a Supabase heartbeat endpoint at `/api/heartbeat`. Hitting it weekly is enough to confirm your dev and prod Supabase projects are still reachable. A cron job or uptime monitor can call the dev and prod URLs separately.
+The backend exposes a Supabase heartbeat endpoint at `/api/heartbeat`. Hitting it weekly updates `heartbeat.checked_at`, so you can verify the last successful run in Supabase for both dev and prod. Configure your server runtime with `SUPABASE_SERVICE_ROLE_KEY`, then have a cron job or uptime monitor call the dev and prod URLs separately.
 
 ## Contributing
 

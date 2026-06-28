@@ -121,6 +121,34 @@ export function SignUp() {
 
       if (!data.user) { throw new Error("User account could not be created."); }
 
+      // Supabase may return a sanitized existing-user response (no identities) to avoid account enumeration.
+      // In that case, no new signup code is sent, so keep the user on signup with a clear next action.
+      if ((data.user.identities?.length ?? 0) === 0) {
+        setErrorMessage("This email is already registered. Try Sign In or reset your password.");
+        return;
+      }
+
+      // If a session is returned, this project is not enforcing email confirmation for signup.
+      // Do not route to code verification in this case.
+      if (data.session) {
+        const userId = data.user.id;
+
+        const { error: profileError } = await supabase.from("profiles").upsert({
+          id: userId,
+          email: emailTrimmed,
+          username: usernameTrimmed.length > 0 ? usernameTrimmed : null,
+        }, { onConflict: "id" });
+
+        if (profileError && !isProfilePermissionError(profileError)) {
+          throw profileError;
+        }
+
+        await supabase.auth.signOut();
+        setStep("success");
+        setSuccessMessage("Account created. You can now log in.");
+        return;
+      }
+
       setStep("verify");
       setSuccessMessage("If this email can be used, a verification code was sent.");
     } catch (err: any) {
