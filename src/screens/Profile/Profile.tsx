@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Footer } from "../../components/Footer";
-import { ASSETS } from "../../lib";
+import { ASSETS, apiUrl } from "../../lib";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "./Profile.module.css";
 
@@ -17,6 +17,7 @@ export function Profile() {
   const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [isPasswordSaving, setIsPasswordSaving] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [activeSection, setActiveSection] = useState<ProfileSection>("identity");
 
   const [metadata, setMetadata] = useState<Metadata>({});
@@ -156,13 +157,52 @@ export function Profile() {
     }
   }
 
-  function handleDeleteProfileShell() {
+  async function handleDeleteAccount() {
     const shouldContinue = window.confirm(
-      "Profile deletion is not implemented yet. This will be added in a later step."
+      "Delete your account permanently? This cannot be undone and will remove your login from Supabase Auth."
     );
     if (!shouldContinue) return;
-    setErrorMessage(null);
-    setStatusMessage("Delete profile workflow is not available yet.");
+
+    const confirmation = window.prompt("Type DELETE to confirm account deletion.");
+    if (confirmation !== "DELETE") {
+      setErrorMessage("Account deletion cancelled. Type DELETE exactly to confirm.");
+      return;
+    }
+
+    try {
+      setIsDeletingAccount(true);
+      setErrorMessage(null);
+      setStatusMessage(null);
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Please sign in again before deleting your account.");
+      }
+
+      const response = await fetch(apiUrl("/api/account/delete"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.message ?? "Could not delete account.");
+      }
+
+      await supabase.auth.signOut();
+      navigate("/", { replace: true });
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err.message ?? "Could not delete account.");
+    } finally {
+      setIsDeletingAccount(false);
+    }
   }
 
   const profileImageSrc = photoUrl.trim().length > 0 ? photoUrl : ASSETS.defaultProfileIcon;
@@ -340,10 +380,10 @@ export function Profile() {
                       <button
                         type="button"
                         className={styles.dangerAction}
-                        onClick={handleDeleteProfileShell}
-                        disabled={isLoading}
+                        onClick={() => void handleDeleteAccount()}
+                        disabled={isLoading || isDeletingAccount}
                       >
-                        Delete Profile (Coming Soon)
+                        {isDeletingAccount ? "Deleting..." : "Delete Account"}
                       </button>
                     </div>
                   </div>
