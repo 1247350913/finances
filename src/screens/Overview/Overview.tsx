@@ -35,6 +35,7 @@ type OverviewWidgetPreference = {
 type TitleAlign = "left" | "center" | "right";
 type LineStyle = "solid" | "dashed";
 type LegendPosition = "top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-center" | "bottom-right";
+type AxisMode = "year" | "age";
 
 type ChartSettings = {
   titleEnabled: boolean;
@@ -54,6 +55,8 @@ type ChartSettings = {
   showYAxisLabels: boolean;
   showXAxisTitle: boolean;
   showXAxisLabels: boolean;
+  chartXAxisMode: AxisMode;
+  tableXAxisMode: AxisMode;
   showLegend: boolean;
   legendPosition: LegendPosition;
   showDataPoints: boolean;
@@ -101,11 +104,44 @@ const DEFAULT_CHART_SETTINGS: ChartSettings = {
   showYAxisLabels: true,
   showXAxisTitle: true,
   showXAxisLabels: true,
+  chartXAxisMode: "year",
+  tableXAxisMode: "year",
   showLegend: true,
   legendPosition: "top-right",
   showDataPoints: false,
   showPointValues: false,
 };
+
+function parseBirthday(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+
+  const parsed = new Date(`${trimmed}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const [yyyy, mm, dd] = trimmed.split("-").map((part) => Number(part));
+  if (
+    parsed.getFullYear() !== yyyy ||
+    parsed.getMonth() + 1 !== mm ||
+    parsed.getDate() !== dd
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function ageForYear(year: number, birthday: Date) {
+  return year - birthday.getFullYear();
+}
+
+function formatYearOrAgeLabel(year: number, mode: AxisMode, birthday: Date | null) {
+  if (mode === "age" && birthday) {
+    return String(ageForYear(year, birthday));
+  }
+  return String(year);
+}
 
 function parseNumericValue(value: string) {
   const numeric = Number(String(value ?? "").replace(/,/g, ""));
@@ -182,6 +218,8 @@ function coerceChartSettings(value: unknown): ChartSettings {
     showYAxisLabels: typeof candidate.showYAxisLabels === "boolean" ? candidate.showYAxisLabels : DEFAULT_CHART_SETTINGS.showYAxisLabels,
     showXAxisTitle: typeof candidate.showXAxisTitle === "boolean" ? candidate.showXAxisTitle : DEFAULT_CHART_SETTINGS.showXAxisTitle,
     showXAxisLabels: typeof candidate.showXAxisLabels === "boolean" ? candidate.showXAxisLabels : DEFAULT_CHART_SETTINGS.showXAxisLabels,
+    chartXAxisMode: candidate.chartXAxisMode === "age" ? "age" : "year",
+    tableXAxisMode: candidate.tableXAxisMode === "age" ? "age" : "year",
     showLegend: typeof candidate.showLegend === "boolean" ? candidate.showLegend : DEFAULT_CHART_SETTINGS.showLegend,
     legendPosition:
       candidate.legendPosition === "top-left" ||
@@ -231,6 +269,7 @@ export function Overview() {
   const [draftChartSettings, setDraftChartSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
 
   const [years, setYears] = useState<number[]>([]);
+  const [birthday, setBirthday] = useState<Date | null>(null);
   const [sectionNames, setSectionNames] = useState<string[]>([]);
   const [netWorthByYear, setNetWorthByYear] = useState<Map<number, number>>(new Map());
   const [groupTotalsByYear, setGroupTotalsByYear] = useState<Map<string, Map<number, number>>>(new Map());
@@ -257,6 +296,7 @@ export function Overview() {
       if (!userData.user) throw new Error("Please sign in again.");
 
       const userId = userData.user.id;
+      setBirthday(parseBirthday((userData.user.user_metadata as Record<string, unknown> | undefined)?.birth_date));
       const [{ data: groupsData, error: groupsError }, { data: accountsData, error: accountsError }, { data: valuesData, error: valuesError }, { data: settingsData, error: settingsError }] = await Promise.all([
         supabase.from("entry_groups").select("id,name").eq("user_id", userId).order("position", { ascending: true }),
         supabase.from("entry_accounts").select("id,group_id,name").eq("user_id", userId).order("position", { ascending: true }),
@@ -356,6 +396,9 @@ export function Overview() {
   const activeWidgetPreferences = isCustomizeOpen ? draftWidgetPreferences : savedWidgetPreferences;
   const activeCaptionMd = isCustomizeOpen ? draftCaptionMd : savedCaptionMd;
   const activeChartSettings = isCustomizeOpen ? draftChartSettings : savedChartSettings;
+  const ageModeAvailable = birthday !== null;
+  const effectiveChartAxisMode: AxisMode = activeChartSettings.chartXAxisMode === "age" && ageModeAvailable ? "age" : "year";
+  const effectiveTableAxisMode: AxisMode = activeChartSettings.tableXAxisMode === "age" && ageModeAvailable ? "age" : "year";
 
   const hasUnsavedChanges = useMemo(() => {
     const widgetsChanged = JSON.stringify(savedWidgetPreferences) !== JSON.stringify(draftWidgetPreferences);
@@ -608,6 +651,19 @@ export function Overview() {
     );
   }
 
+  function trySetAxisMode(mode: AxisMode, target: "chart" | "table") {
+    if (mode === "age" && !ageModeAvailable) {
+      window.alert("Add your birthday in Profile before using Age mode.");
+      return;
+    }
+
+    setDraftChartSettings((prev) =>
+      target === "chart"
+        ? { ...prev, chartXAxisMode: mode }
+        : { ...prev, tableXAxisMode: mode }
+    );
+  }
+
   function renderChartWidget() {
     return (
       <section className={styles.widgetCard} key="chart-widget">
@@ -682,7 +738,9 @@ export function Overview() {
                   <select value={chartFilterStartYear} onChange={(event) => setChartFilterStartYear(event.target.value)}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`chart-start-${year}`} value={String(year)}>{year}</option>
+                      <option key={`chart-start-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveChartAxisMode, birthday)}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -691,7 +749,9 @@ export function Overview() {
                   <select value={chartFilterEndYear} onChange={(event) => setChartFilterEndYear(event.target.value)}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`chart-end-${year}`} value={String(year)}>{year}</option>
+                      <option key={`chart-end-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveChartAxisMode, birthday)}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -843,6 +903,14 @@ export function Overview() {
                   />
                   X-Axis Labels
                 </label>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.chartXAxisMode === "age"}
+                    onChange={(event) => trySetAxisMode(event.target.checked ? "age" : "year", "chart")}
+                  />
+                  Use Age On X-Axis
+                </label>
               </div>
             </section>
           </div>
@@ -954,13 +1022,13 @@ export function Overview() {
                 textAnchor="middle"
                 className={styles.chartLabel}
               >
-                {year}
+                {formatYearOrAgeLabel(year, effectiveChartAxisMode, birthday)}
               </text>
             ))}
 
             {activeChartSettings.showXAxisTitle && (
               <text x={chartGeometry.width / 2} y={chartGeometry.height - 10} textAnchor="middle" className={styles.chartAxisTitle}>
-                Year
+                {effectiveChartAxisMode === "age" ? "Age" : "Year"}
               </text>
             )}
 
@@ -1079,7 +1147,9 @@ export function Overview() {
                   <select value={tableFilterStartYear} onChange={(event) => setTableFilterStartYear(event.target.value)}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`table-start-${year}`} value={String(year)}>{year}</option>
+                      <option key={`table-start-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveTableAxisMode, birthday)}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -1088,13 +1158,29 @@ export function Overview() {
                   <select value={tableFilterEndYear} onChange={(event) => setTableFilterEndYear(event.target.value)}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`table-end-${year}`} value={String(year)}>{year}</option>
+                      <option key={`table-end-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveTableAxisMode, birthday)}
+                      </option>
                     ))}
                   </select>
                 </label>
                 <label>
                   Section
                   {renderSectionSelector(tableFilterSections, setTableFilterSections, "table")}
+                </label>
+              </div>
+            </section>
+
+            <section className={styles.settingsGroup}>
+              <h3>Options</h3>
+              <div className={styles.settingsGrid}>
+                <label className={styles.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={draftChartSettings.tableXAxisMode === "age"}
+                    onChange={(event) => trySetAxisMode(event.target.checked ? "age" : "year", "table")}
+                  />
+                  Use Age
                 </label>
               </div>
             </section>
@@ -1107,7 +1193,7 @@ export function Overview() {
               <tr>
                 <th aria-label="Category label column" />
                 {tableFilteredYears.map((year) => (
-                  <th key={year}>{year}</th>
+                  <th key={year}>{formatYearOrAgeLabel(year, effectiveTableAxisMode, birthday)}</th>
                 ))}
               </tr>
             </thead>

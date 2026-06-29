@@ -1932,16 +1932,25 @@ async function runCustomParserTest(
   fileName: string,
   fileDataUrl: string
 ): Promise<ParsedStatementSummary> {
-  const response = await fetch(apiUrl("/api/parse/custom-parser-test"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ parserSource, fileName, fileDataUrl }),
-  });
+  const endpoint = apiUrl("/api/parse/custom-parser-test");
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parserSource, fileName, fileDataUrl }),
+    });
+  } catch (error: any) {
+    throw new Error(
+      `Could not reach parser API (${endpoint}). Check backend URL, TLS (https), and CORS allowed origins. ${error?.message ?? ""}`.trim()
+    );
+  }
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data?.message ?? "Could not run parser test.");
+    throw new Error(data?.message ?? `Could not run parser test (HTTP ${response.status}).`);
   }
 
   const normalized = normalizeParserTestSummary(data?.parsed);
@@ -1955,8 +1964,10 @@ async function runCustomParserTest(
 }
 
 async function parseCapitalOneStatement(fileName: string, fileDataUrl: string): Promise<ParsedStatementSummary | null> {
+  const endpoint = apiUrl("/api/parse/capital-one");
+
   try {
-    const response = await fetch(apiUrl("/api/parse/capital-one"), {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, fileDataUrl }),
@@ -1965,7 +1976,8 @@ async function parseCapitalOneStatement(fileName: string, fileDataUrl: string): 
     if (!response.ok) return null;
     const data = await response.json();
     return coerceParsedSummary(data?.parsed);
-  } catch {
+  } catch (error) {
+    console.error(`Could not reach parser API (${endpoint})`, error);
     return null;
   }
 }
