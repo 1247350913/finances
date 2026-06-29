@@ -32,7 +32,54 @@ jobs:
       - name: Build check
         run: pnpm build
 
-  # ── Job 2: Build frontend & deploy to Cloudflare Pages ───────────────────
+  # ── Job 2: PR deploy-readiness checks (no production deploy) ──────────────
+  deploy-readiness:
+    name: Deploy readiness check
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend container (preflight only)
+        run: docker build -t finances-api:pr-check .
+
+      - name: Wrangler CLI sanity check
+        run: npx --yes wrangler --version
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: gcloud CLI sanity check
+        run: gcloud --version
+
+      - name: Validate deploy secrets are present (internal PRs)
+        if: ${{ github.event.pull_request.head.repo.fork == false }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCR_REGION: ${{ secrets.GCR_REGION }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$VITE_SUPABASE_URL"
+          test -n "$VITE_SUPABASE_PUBLISHABLE_KEY"
+          test -n "$VITE_API_BASE_URL"
+          test -n "$GCP_SA_KEY"
+          test -n "$GCP_PROJECT_ID"
+          test -n "$GCR_REGION"
+
+      - name: Skip secret presence checks for fork PRs
+        if: ${{ github.event.pull_request.head.repo.fork == true }}
+        run: echo "Skipping secret checks for fork PR (GitHub does not expose secrets)."
+
+  # ── Job 3: Build frontend & deploy to Cloudflare Pages ───────────────────
   deploy-frontend:
     name: Deploy Frontend → Cloudflare Pages (finances.lnks.info)
     runs-on: ubuntu-latest
@@ -69,7 +116,7 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=finances --branch=main
 
-  # ── Job 3: Build Docker image & deploy backend to Google Cloud Run ────────
+  # ── Job 4: Build Docker image & deploy backend to Google Cloud Run ────────
   deploy-backend:
     name: Deploy Backend → Google Cloud Run (api.finances.lnks.info)
     runs-on: ubuntu-latest
