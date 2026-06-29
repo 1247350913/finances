@@ -23,6 +23,7 @@ export function Profile() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [birthday, setBirthday] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -50,6 +51,7 @@ export function Profile() {
       setEmail(data.user.email ?? "");
       setUsername(typeof nextMetadata.username === "string" ? nextMetadata.username : "");
       setDisplayName(typeof nextMetadata.display_name === "string" ? nextMetadata.display_name : "");
+      setBirthday(typeof nextMetadata.birth_date === "string" ? nextMetadata.birth_date : "");
       setPhotoUrl(typeof nextMetadata.profile_photo_url === "string" ? nextMetadata.profile_photo_url : "");
     } catch (err: any) {
       console.error(err);
@@ -78,6 +80,7 @@ export function Profile() {
         {
           username: username.trim(),
           display_name: displayName.trim(),
+          birth_date: birthday.trim(),
           profile_photo_url: photoUrl.trim(),
         },
         "Profile updated."
@@ -230,6 +233,10 @@ export function Profile() {
                       <span>Display Name</span>
                       <strong>{displayName.trim().length > 0 ? displayName : "-"}</strong>
                     </div>
+                    <div className={styles.infoRow}>
+                      <span>Birthday</span>
+                      <strong>{birthday.trim().length > 0 ? birthday : "-"}</strong>
+                    </div>
                   </div>
                 </div>
               )}
@@ -256,6 +263,15 @@ export function Profile() {
                         value={displayName}
                         onChange={(event) => setDisplayName(event.target.value)}
                         placeholder="Optional"
+                      />
+                    </label>
+
+                    <label>
+                      Birthday
+                      <input
+                        type="date"
+                        value={birthday}
+                        onChange={(event) => setBirthday(event.target.value)}
                       />
                     </label>
 

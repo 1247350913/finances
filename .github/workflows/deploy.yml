@@ -109,5 +109,5 @@ jobs:
             --memory 512Mi \
             --cpu 1 \
             --timeout 60s \
-            --set-env-vars "NODE_ENV=production,ALLOWED_ORIGINS=https://finances.lnks.info"
+            --set-env-vars "NODE_ENV=production,ALLOWED_ORIGINS=https://finances.lnks.info,https://www.finances.lnks.info,https://finances.pages.dev"
 
