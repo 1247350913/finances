@@ -10,9 +10,14 @@ export function Header({ homeLink = "/" }: Props) {
   return (
     <header className={styles.header}>
       <Link className={styles.logo} to={homeLink}>finances</Link>
-      <Link className={styles.profileLink} to="/profile" aria-label="Profile">
-        <img className={styles.profileIcon} src={ASSETS.defaultProfileIcon} alt="" aria-hidden="true" />
-      </Link>
+      <button
+        type="button"
+        className={styles.profileLink}
+        aria-label="NCC flag"
+        title="About NCC project page coming soon"
+      >
+        <img className={styles.profileIcon} src={ASSETS.flag} alt="" aria-hidden="true" />
+      </button>
     </header>
   );
 }
