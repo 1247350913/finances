@@ -1,0 +1,58 @@
+.header {
+  height: 88px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(32px, 13vw, 165px);
+  background: #fff;
+}
+
+.logo {
+  font-family: var(--serif);
+  font-size: 32px;
+  line-height: 1;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.profileBadgeLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #efefef;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.profileBadgeIcon {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.flagButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.flagIcon {
+  width: auto;
+  height: 22px;
+  display: block;
+  object-fit: contain;
+}

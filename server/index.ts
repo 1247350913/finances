@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { config as loadEnv } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { PDFParse } from "pdf-parse";
@@ -7,6 +8,8 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { db } from "./lib/db";
+import { authRouter } from "./auth/router";
 
 loadEnv({ path: ".env.development" });
 loadEnv();
@@ -35,41 +38,33 @@ app.use(
           }
         }
       : true,
-    methods: ["GET", "POST"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   })
 );
+app.use(cookieParser());
 app.use(express.json({ limit: "25mb" }));
+app.use("/api/auth", authRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, message: "Backend server is running" });
 });
 app.get("/api/heartbeat", async (_req, res) => {
   try {
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      res.status(500).json({
-        ok: false,
-        message:
-          "Missing Supabase server environment variables for heartbeat checks. Set VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the backend.",
-      });
-      return;
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
     const checkedAt = new Date().toISOString();
-    const { data, error } = await supabase
-      .from("heartbeat")
-      .upsert({ id: 1, checked_at: checkedAt }, { onConflict: "id" })
-      .select("id, checked_at")
-      .single();
+    const result = await db.query<{ id: number; checked_at: string }>(
+      `insert into public.heartbeat (id, checked_at)
+       values (1, $1)
+       on conflict (id)
+       do update set checked_at = excluded.checked_at
+       returning id, checked_at`,
+      [checkedAt]
+    );
 
-    if (error) {
-      throw error;
-    }
-
-    res.json({ ok: true, heartbeat: data ?? { id: 1, checked_at: checkedAt } });
+    res.json({ ok: true, heartbeat: result.rows[0] ?? { id: 1, checked_at: checkedAt } });
   } catch (error: any) {
     console.error(error);
-    res.status(500).json({ ok: false, message: error?.message ?? "Could not reach Supabase." });
+    res.status(500).json({ ok: false, message: error?.message ?? "Could not reach Neon Postgres." });
   }
 });
 app.get("/", (_req, res) => {

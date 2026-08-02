@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { AuthError, EmailOtpType } from "@supabase/supabase-js";
-import { supabase } from "../../lib/supabaseClient";
+import { authClient } from "../../lib";
 import { ScreenShell } from "../../components/ScreenShell";
 import { AuthCard } from "../../components/AuthCard";
 import { Input } from "../../primitives/Input";
@@ -9,64 +8,6 @@ import { Button } from "../../primitives/Button";
 import styles from "./Auth.module.css";
 
 type Step = "signup" | "verify" | "success";
-
-function isInvalidCodeError(error: AuthError | null) {
-  if (!error) return false;
-
-  const message = error.message.toLowerCase();
-
-  return (
-    error.status === 400 ||
-    error.status === 401 ||
-    message.includes("invalid") ||
-    message.includes("expired") ||
-    message.includes("token") ||
-    message.includes("otp")
-  );
-}
-
-function normalizeVerifyError(error: AuthError | null) {
-  if (isInvalidCodeError(error)) {
-    return "Incorrect code. Please check the code and try again.";
-  }
-
-  return error?.message ?? "Verification failed. Please try again.";
-}
-
-function isProfilePermissionError(error: any) {
-  return error?.code === "42501" || String(error?.message ?? "").toLowerCase().includes("permission denied");
-}
-
-async function verifyEmailCode(email: string, token: string) {
-  const otpTypesToTry: EmailOtpType[] = ["signup", "email"];
-  const errors: (AuthError | null)[] = [];
-
-  for (const type of otpTypesToTry) {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type,
-    });
-
-    if (!error) {
-      return { data, error: null };
-    }
-
-    errors.push(error);
-
-    // If Supabase tells us the code is invalid, retrying with another type won't help.
-    if (isInvalidCodeError(error)) {
-      break;
-    }
-  }
-
-  const invalidCodeError = errors.find((error) => isInvalidCodeError(error));
-
-  return {
-    data: null,
-    error: invalidCodeError ?? errors[errors.length - 1] ?? null,
-  };
-}
 
 export function SignUp() {
   const [step, setStep] = useState<Step>("signup");
@@ -100,7 +41,7 @@ export function SignUp() {
     passwordNumberValid &&
     passwordSpecialCharacterValid;
 
-  const verificationCodeValid = /^[a-zA-Z0-9]{8}$/.test(verificationCodeTrimmed);
+  const verificationCodeValid = /^[a-zA-Z0-9]{6,8}$/.test(verificationCodeTrimmed);
 
   const formValid = emailValid && passwordValid && usernameValid && !loading;
   const verifyValid = verificationCodeValid && !loading;
@@ -115,39 +56,7 @@ export function SignUp() {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      const { data, error } = await supabase.auth.signUp({ email: emailTrimmed, password });
-      
-      if (error) { throw error; }
-
-      if (!data.user) { throw new Error("User account could not be created."); }
-
-      // Supabase may return a sanitized existing-user response (no identities) to avoid account enumeration.
-      // In that case, no new signup code is sent, so keep the user on signup with a clear next action.
-      if ((data.user.identities?.length ?? 0) === 0) {
-        setErrorMessage("This email is already registered. Try Sign In or reset your password.");
-        return;
-      }
-
-      // If a session is returned, this project is not enforcing email confirmation for signup.
-      // Do not route to code verification in this case.
-      if (data.session) {
-        const userId = data.user.id;
-
-        const { error: profileError } = await supabase.from("profiles").upsert({
-          id: userId,
-          email: emailTrimmed,
-          username: usernameTrimmed.length > 0 ? usernameTrimmed : null,
-        }, { onConflict: "id" });
-
-        if (profileError && !isProfilePermissionError(profileError)) {
-          throw profileError;
-        }
-
-        await supabase.auth.signOut();
-        setStep("success");
-        setSuccessMessage("Account created. You can now log in.");
-        return;
-      }
+      await authClient.signUp(emailTrimmed, usernameTrimmed, password);
 
       setStep("verify");
       setSuccessMessage("If this email can be used, a verification code was sent.");
@@ -169,43 +78,13 @@ export function SignUp() {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      const { data, error } = await verifyEmailCode(emailTrimmed, verificationCodeTrimmed);
-
-      if (error) { throw error; }
-
-      const userId = data?.user?.id;
-
-      if (!userId) { throw new Error("Verification succeeded, but no user was returned."); }
-
-      const { error: profileError } = await supabase.from("profiles").upsert({
-        id: userId,
-        email: emailTrimmed,
-        username: usernameTrimmed.length > 0 ? usernameTrimmed : null,
-      }, { onConflict: "id" });
-
-      if (profileError) {
-        if (isProfilePermissionError(profileError)) {
-          console.warn("Profile insert skipped due to permissions:", profileError);
-          await supabase.auth.signOut();
-          setStep("success");
-          setSuccessMessage("Email verified and account created. Profile setup will complete after database permissions are updated.");
-          return;
-        }
-
-        throw profileError;
-      }
-
-      await supabase.auth.signOut();
+      await authClient.verifySignUp(emailTrimmed, verificationCodeTrimmed);
 
       setStep("success");
       setSuccessMessage("Account created. You can now log in.");
     } catch (err: any) {
       console.error(err);
-      if (isProfilePermissionError(err)) {
-        setErrorMessage("Email was verified, but profile setup failed due to database permissions.");
-      } else {
-        setErrorMessage(normalizeVerifyError(err));
-      }
+      setErrorMessage(err.message ?? "Verification failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -217,9 +96,7 @@ export function SignUp() {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      const { error } = await supabase.auth.resend({ type: "signup", email: emailTrimmed });
-
-      if (error) { throw error; }
+      await authClient.resendSignUpCode(emailTrimmed);
 
       setSuccessMessage("Verification code resent.");
     } catch (err: any) {
@@ -291,7 +168,7 @@ export function SignUp() {
                 maxLength={8}
               />
 
-              {verificationCode.length > 0 && !verificationCodeValid && <p className={styles.requirements}>Enter the 8-character verification code.</p>}
+              {verificationCode.length > 0 && !verificationCodeValid && <p className={styles.requirements}>Enter the 6-8 character verification code.</p>}
 
               <div className={styles.buttonRow}>
                 <Button type="submit" text={loading ? "Verifying..." : "Verify Email"} disabled={!verifyValid}/>

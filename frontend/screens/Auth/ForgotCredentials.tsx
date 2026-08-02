@@ -3,7 +3,7 @@ import { ScreenShell } from "../../components/ScreenShell";
 import { AuthCard } from "../../components/AuthCard";
 import { Input }from "../../primitives/Input";
 import { Button } from "../../primitives/Button";
-import { supabase } from "../../lib/supabaseClient";
+import { authClient } from "../../lib";
 import styles from "./Auth.module.css";
 
 export function ForgotCredentials() {
@@ -26,11 +26,7 @@ export function ForgotCredentials() {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      const { error } = await supabase.auth.resetPasswordForEmail(emailTrimmed, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-
-      if (error) throw error;
+      await authClient.requestPasswordReset(emailTrimmed);
 
       setSuccessMessage("If that email exists, a reset link has been sent.");
     } catch (err: any) {

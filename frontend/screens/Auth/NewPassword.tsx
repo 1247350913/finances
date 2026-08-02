@@ -4,15 +4,23 @@ import { ScreenShell } from "../../components/ScreenShell";
 import { AuthCard } from "../../components/AuthCard";
 import { Input } from "../../primitives/Input";
 import { Button } from "../../primitives/Button";
-import { supabase } from "../../lib/supabaseClient";
+import { authClient } from "../../lib";
 import styles from "./Auth.module.css";
 
 export function NewPassword() {
   const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isCustomAuth = authClient.mode === "custom";
+
+  const emailTrimmed = email.trim();
+  const codeTrimmed = code.trim();
+  const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed), [emailTrimmed]);
+  const codeValid = useMemo(() => /^[a-zA-Z0-9]{6,8}$/.test(codeTrimmed), [codeTrimmed]);
 
   const passwordLengthValid = password.length >= 8;
   const passwordLowercaseValid = /[a-z]/.test(password);
@@ -32,7 +40,8 @@ export function NewPassword() {
     return password === confirmPassword;
   }, [password, confirmPassword]);
 
-  const formValid = passwordValid && passwordsMatch && confirmPassword.length > 0 && !loading;
+  const customInputsValid = !isCustomAuth || (emailValid && codeValid);
+  const formValid = passwordValid && passwordsMatch && confirmPassword.length > 0 && customInputsValid && !loading;
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -43,15 +52,11 @@ export function NewPassword() {
       setLoading(true);
       setErrorMessage(null);
 
-      const { data: sessionData } = await supabase.auth.getSession();
-
-      if (!sessionData.session) {
-        throw new Error("Reset link is invalid or has expired. Please request a new reset email.");
+      if (isCustomAuth) {
+        await authClient.resetPassword(emailTrimmed, codeTrimmed, password);
+      } else {
+        await authClient.resetPassword("", password);
       }
-
-      const { error } = await supabase.auth.updateUser({ password });
-
-      if (error) throw error;
 
       navigate("/password-updated");
     } catch (err: any) {
@@ -68,6 +73,14 @@ export function NewPassword() {
         <h1 className={styles.flowHeading}>Verification Successful!<br />Now Enter A New Password</h1>
         <AuthCard wide>
           <form className={styles.formStack} onSubmit={handleSubmit}>
+            {isCustomAuth && (
+              <>
+                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                {email.length > 0 && !emailValid && <p className={styles.errorMessage}>Enter a valid email.</p>}
+                <Input type="code entry" value={code} onChange={(e) => setCode(e.target.value)} />
+                {code.length > 0 && !codeValid && <p className={styles.errorMessage}>Enter a valid 6-8 character reset code.</p>}
+              </>
+            )}
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)}/>
             <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}/>
             {password.length > 0 && (!passwordLengthValid || !passwordLowercaseValid || !passwordUppercaseValid || !passwordNumberValid || !passwordSpecialCharacterValid) && (

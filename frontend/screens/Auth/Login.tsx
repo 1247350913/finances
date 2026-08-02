@@ -5,7 +5,7 @@ import { ScreenShell } from "../../components/ScreenShell";
 import { AuthCard } from "../../components/AuthCard";
 import { Input } from "../../primitives/Input";
 import { Button } from "../../primitives/Button";
-import { supabase } from "../../lib/supabaseClient";
+import { authClient } from "../../lib";
 import styles from "./Auth.module.css";
 
 export function Login() {
@@ -29,19 +29,7 @@ export function Login() {
       setLoading(true);
       setErrorMessage(null);
 
-      const { error } = await supabase.auth.signInWithPassword({
-        email: emailTrimmed,
-        password,
-      });
-
-      if (error) {
-        const message = error.message.toLowerCase();
-        if (error.status === 400 || message.includes("invalid login")) {
-          throw new Error("Incorrect email or password.");
-        }
-
-        throw error;
-      }
+      await authClient.signIn(emailTrimmed, password);
 
       navigate("/home");
     } catch (err: any) {
