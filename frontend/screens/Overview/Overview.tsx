@@ -4,7 +4,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { Link } from "react-router-dom";
 import { Footer } from "../../components/Footer";
-import { ASSETS } from "../../lib";
+import { ASSETS, apiUrl, authClient } from "../../lib";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "./Overview.module.css";
 
@@ -291,29 +291,59 @@ export function Overview() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      let groups: EntryGroupRow[] = [];
+      let accounts: EntryAccountRow[] = [];
+      let values: EntryValueRow[] = [];
+      let settingsRow: Record<string, any> | undefined;
+      let birthDateValue: unknown = null;
 
-      const userId = userData.user.id;
-      setBirthday(parseBirthday((userData.user.user_metadata as Record<string, unknown> | undefined)?.birth_date));
-      const [{ data: groupsData, error: groupsError }, { data: accountsData, error: accountsError }, { data: valuesData, error: valuesError }, { data: settingsData, error: settingsError }] = await Promise.all([
-        supabase.from("entry_groups").select("id,name").eq("user_id", userId).order("position", { ascending: true }),
-        supabase.from("entry_accounts").select("id,group_id,name").eq("user_id", userId).order("position", { ascending: true }),
-        supabase.from("entry_account_values").select("account_id,year,value").eq("user_id", userId).order("year", { ascending: true }),
-        supabase.from("entry_settings").select("*").eq("user_id", userId).limit(1),
-      ]);
+      if (authClient.mode === "custom") {
+        const response = await fetch(apiUrl("/api/overview"), {
+          method: "GET",
+          credentials: "include",
+        });
 
-      if (groupsError) throw groupsError;
-      if (accountsError) throw accountsError;
-      if (valuesError) throw valuesError;
-      if (settingsError) throw settingsError;
+        if (response.status === 401) {
+          throw new Error("Please sign in again.");
+        }
 
-      const groups = (groupsData ?? []) as EntryGroupRow[];
-      const accounts = (accountsData ?? []) as EntryAccountRow[];
-      const values = (valuesData ?? []) as EntryValueRow[];
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(payload?.error ?? payload?.message ?? "Could not load overview."));
+        }
 
-      const settingsRow = (settingsData ?? [])[0] as Record<string, any> | undefined;
+        groups = (payload?.data?.groups ?? []) as EntryGroupRow[];
+        accounts = (payload?.data?.accounts ?? []) as EntryAccountRow[];
+        values = (payload?.data?.values ?? []) as EntryValueRow[];
+        settingsRow = (payload?.data?.settings ?? undefined) as Record<string, any> | undefined;
+        birthDateValue = payload?.data?.birth_date ?? null;
+      } else {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        if (!userData.user) throw new Error("Please sign in again.");
+
+        const userId = userData.user.id;
+        birthDateValue = (userData.user.user_metadata as Record<string, unknown> | undefined)?.birth_date;
+
+        const [{ data: groupsData, error: groupsError }, { data: accountsData, error: accountsError }, { data: valuesData, error: valuesError }, { data: settingsData, error: settingsError }] = await Promise.all([
+          supabase.from("entry_groups").select("id,name").eq("user_id", userId).order("position", { ascending: true }),
+          supabase.from("entry_accounts").select("id,group_id,name").eq("user_id", userId).order("position", { ascending: true }),
+          supabase.from("entry_account_values").select("account_id,year,value").eq("user_id", userId).order("year", { ascending: true }),
+          supabase.from("entry_settings").select("*").eq("user_id", userId).limit(1),
+        ]);
+
+        if (groupsError) throw groupsError;
+        if (accountsError) throw accountsError;
+        if (valuesError) throw valuesError;
+        if (settingsError) throw settingsError;
+
+        groups = (groupsData ?? []) as EntryGroupRow[];
+        accounts = (accountsData ?? []) as EntryAccountRow[];
+        values = (valuesData ?? []) as EntryValueRow[];
+        settingsRow = (settingsData ?? [])[0] as Record<string, any> | undefined;
+      }
+
+      setBirthday(parseBirthday(birthDateValue));
       const startYear = typeof settingsRow?.start_year === "number" ? settingsRow.start_year : null;
       const endYear = typeof settingsRow?.end_year === "number" ? settingsRow.end_year : null;
 
@@ -435,22 +465,44 @@ export function Overview() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      if (authClient.mode === "custom") {
+        const response = await fetch(apiUrl("/api/overview/layout"), {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            overview_widgets: normalizeWidgetPreferences(draftWidgetPreferences),
+            overview_caption_md: draftCaptionMd,
+            overview_chart_settings: draftChartSettings,
+          }),
+        });
 
-      const { error } = await supabase.from("entry_settings").upsert(
-        {
-          user_id: userData.user.id,
-          overview_widgets: normalizeWidgetPreferences(draftWidgetPreferences),
-          overview_caption_md: draftCaptionMd,
-          overview_chart_settings: draftChartSettings,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
+        if (response.status === 401) {
+          throw new Error("Please sign in again.");
+        }
 
-      if (error) throw error;
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(payload?.error ?? payload?.message ?? "Could not save layout."));
+        }
+      } else {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        if (!userData.user) throw new Error("Please sign in again.");
+
+        const { error } = await supabase.from("entry_settings").upsert(
+          {
+            user_id: userData.user.id,
+            overview_widgets: normalizeWidgetPreferences(draftWidgetPreferences),
+            overview_caption_md: draftCaptionMd,
+            overview_chart_settings: draftChartSettings,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+
+        if (error) throw error;
+      }
 
       setSavedWidgetPreferences(normalizeWidgetPreferences(draftWidgetPreferences));
       setSavedCaptionMd(draftCaptionMd);

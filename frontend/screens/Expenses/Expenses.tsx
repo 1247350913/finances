@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Footer } from "../../components/Footer";
-import { ASSETS, apiUrl } from "../../lib";
+import { ASSETS, apiUrl, authClient } from "../../lib";
 import { supabase } from "../../lib/supabaseClient";
 import exampleParserSource from "./example_expense_parser.py?raw";
 import styles from "./Expenses.module.css";
@@ -190,19 +190,30 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
     setExpandedReadGroupKeys([]);
   }, [readMonthDetailMonthKey]);
 
+  async function getCurrentUserId() {
+    if (authClient.mode === "custom") {
+      const session = await authClient.getSession();
+      if (!session) throw new Error("Please sign in again.");
+      return session.userId;
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) throw userError;
+    if (!userData.user) throw new Error("Please sign in again.");
+    return userData.user.id;
+  }
+
   async function loadAccounts() {
     try {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      const userId = await getCurrentUserId();
 
       const { data, error } = await supabase
         .from("accounts")
         .select("id,name,institution,card_image_data_url,parser_file_name,parser_source")
-        .eq("user_id", userData.user.id)
+        .eq("user_id", userId)
         .eq("account_type", "expense")
         .eq("archived", false)
         .order("created_at", { ascending: true });
@@ -243,15 +254,13 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      const userId = await getCurrentUserId();
 
       const cardImageDataUrl = cardImageFile ? await readFileAsDataUrl(cardImageFile) : null;
       const parserSource = await readFileAsText(parserFile);
 
       const { error } = await supabase.from("accounts").insert({
-        user_id: userData.user.id,
+        user_id: userId,
         name,
         institution: last4.length > 0 ? last4 : null,
         account_type: "expense",
@@ -280,14 +289,12 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
     try {
       setErrorMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      const userId = await getCurrentUserId();
 
       const { data, error } = await supabase
         .from("account_statements")
         .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
-        .eq("user_id", userData.user.id)
+        .eq("user_id", userId)
         .eq("account_id", accountId)
         .order("statement_date", { ascending: true });
 
@@ -304,14 +311,12 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setIsReadSummaryLoading(true);
       setErrorMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      const userId = await getCurrentUserId();
 
       const { data, error } = await supabase
         .from("account_statements")
         .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
-        .eq("user_id", userData.user.id)
+        .eq("user_id", userId)
         .in("account_id", accountIds)
         .order("statement_date", { ascending: true });
 
@@ -452,14 +457,12 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      const userId = await getCurrentUserId();
 
       const { data: existing, error: existingError } = await supabase
         .from("account_statements")
         .select("id")
-        .eq("user_id", userData.user.id)
+        .eq("user_id", userId)
         .eq("account_id", selectedAccount.id)
         .eq("statement_date", statementDateValue)
         .limit(1);
@@ -479,7 +482,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       const parsed_result = JSON.stringify(parsedSummary);
 
       const statementPayload = {
-        user_id: userData.user.id,
+        user_id: userId,
         account_id: selectedAccount.id,
         statement_date: statementDateValue,
         file_name: statementFile.name,
@@ -542,14 +545,12 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   }
 
   async function reparseExistingStatementsForAccount(accountId: string, parserSource: string) {
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError) throw userError;
-    if (!userData.user) throw new Error("Please sign in again.");
+    const userId = await getCurrentUserId();
 
     const { data: statementsData, error: statementsError } = await supabase
       .from("account_statements")
       .select("id,file_name,file_data_url")
-      .eq("user_id", userData.user.id)
+      .eq("user_id", userId)
       .eq("account_id", accountId)
       .order("statement_date", { ascending: true });
 
@@ -570,7 +571,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
           .from("account_statements")
           .update({ parsed_result: JSON.stringify(parsedSummary) })
           .eq("id", statement.id)
-          .eq("user_id", userData.user.id);
+          .eq("user_id", userId);
 
         if (updateError) throw updateError;
       } catch (error) {
@@ -642,13 +643,11 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   async function loadManageStatements(accountId: string) {
     try {
       setErrorMessage(null);
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      const userId = await getCurrentUserId();
       const { data, error } = await supabase
         .from("account_statements")
         .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
-        .eq("user_id", userData.user.id)
+        .eq("user_id", userId)
         .eq("account_id", accountId)
         .order("statement_date", { ascending: true });
       if (error) throw error;
@@ -668,14 +667,12 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
+      const userId = await getCurrentUserId();
 
       const { data: existing } = await supabase
         .from("account_statements")
         .select("id")
-        .eq("user_id", userData.user.id)
+        .eq("user_id", userId)
         .eq("account_id", activeManageAccount.id)
         .eq("statement_date", statementDateValue)
         .limit(1);
@@ -693,7 +690,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       const parsed_result = JSON.stringify(parsedSummary);
 
       const statementPayload = {
-        user_id: userData.user.id,
+        user_id: userId,
         account_id: activeManageAccount.id,
         statement_date: statementDateValue,
         file_name: manageStatementFile.name,

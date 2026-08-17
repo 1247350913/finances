@@ -63,6 +63,23 @@ async function getUserById(userId: string): Promise<DbUser | null> {
   return result.rows[0] ?? null;
 }
 
+async function getSessionFromCookie(req: Request) {
+  const token = req.cookies?.[authConfig.cookieName] as string | undefined;
+  if (!token) return null;
+
+  try {
+    const payload = verifyAuthToken(token);
+    const user = await getUserById(payload.sub);
+    if (!user || user.auth_version !== payload.tokenVersion) {
+      return null;
+    }
+
+    return toSessionPayload(user);
+  } catch {
+    return null;
+  }
+}
+
 async function authGuard(req: AuthRequest, res: Response, next: NextFunction) {
   const token = req.cookies?.[authConfig.cookieName] as string | undefined;
   if (!token) {
@@ -87,6 +104,14 @@ async function authGuard(req: AuthRequest, res: Response, next: NextFunction) {
 }
 
 export const authRouter = Router();
+
+function maybeDevCodePayload(rawCode: string) {
+  return authConfig.devExposeOtp ? { verificationCode: rawCode } : {};
+}
+
+function maybeDevResetCodePayload(rawCode: string) {
+  return authConfig.devExposeOtp ? { resetCode: rawCode } : {};
+}
 
 authRouter.post("/signup", async (req, res) => {
   try {
@@ -150,6 +175,7 @@ authRouter.post("/signup", async (req, res) => {
         username: user.username,
         emailVerified: user.email_verified,
       },
+      ...maybeDevCodePayload(rawCode),
     });
   } catch (error: any) {
     console.error(error);
@@ -181,7 +207,7 @@ authRouter.post("/verify/request", async (req, res) => {
     );
 
     await sendVerifyEmail(email, rawCode);
-    res.json({ ok: true });
+    res.json({ ok: true, ...maybeDevCodePayload(rawCode) });
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ ok: false, error: error?.message ?? "Could not send verification code" });
@@ -274,8 +300,15 @@ authRouter.post("/signout", async (_req, res) => {
   res.json({ ok: true });
 });
 
-authRouter.get("/session", authGuard, async (req: AuthRequest, res) => {
-  res.json({ ok: true, session: toSessionPayload(req.authUser as DbUser) });
+authRouter.get("/session", async (req, res) => {
+  const session = await getSessionFromCookie(req);
+  if (!session) {
+    clearAuthCookie(res);
+    res.json({ ok: true, session: null });
+    return;
+  }
+
+  res.json({ ok: true, session });
 });
 
 authRouter.patch("/profile", authGuard, async (req: AuthRequest, res) => {
@@ -336,7 +369,7 @@ authRouter.post("/password-reset/request", async (req, res) => {
     );
 
     await sendPasswordResetEmail(email, rawCode);
-    res.json({ ok: true });
+    res.json({ ok: true, ...maybeDevResetCodePayload(rawCode) });
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ ok: false, error: error?.message ?? "Could not send reset code" });

@@ -56,10 +56,15 @@ export function SignUp() {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      await authClient.signUp(emailTrimmed, usernameTrimmed, password);
+      const result = await authClient.signUp(emailTrimmed, usernameTrimmed, password);
 
       setStep("verify");
-      setSuccessMessage("If this email can be used, a verification code was sent.");
+      if (result?.verificationCode) {
+        setVerificationCode(result.verificationCode);
+        setSuccessMessage(`Dev verification code: ${result.verificationCode}`);
+      } else {
+        setSuccessMessage("If this email can be used, a verification code was sent.");
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Something went wrong.");
@@ -96,9 +101,13 @@ export function SignUp() {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      await authClient.resendSignUpCode(emailTrimmed);
-
-      setSuccessMessage("Verification code resent.");
+      const result = await authClient.resendSignUpCode(emailTrimmed);
+      if (result?.verificationCode) {
+        setVerificationCode(result.verificationCode);
+        setSuccessMessage(`Dev verification code resent: ${result.verificationCode}`);
+      } else {
+        setSuccessMessage("Verification code resent.");
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not resend code.");

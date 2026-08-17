@@ -26,7 +26,7 @@ export async function sendVerifyEmail(email: string, verificationCode: string): 
     from: config.resendFrom,
     to: email,
     subject: "Verify your account",
-    html: `<p>Your verification code is:</p><p style=\"font-size:28px;font-weight:700;letter-spacing:0.18em;\">${verificationCode}</p><p>Enter this code in the Media Viewer app within 30 minutes.</p>`,
+    html: `<p>Your verification code is:</p><p style=\"font-size:28px;font-weight:700;letter-spacing:0.18em;\">${verificationCode}</p><p>Enter this code in the Finances app within 30 minutes.</p>`,
   });
 }
 
@@ -40,6 +40,6 @@ export async function sendPasswordResetEmail(email: string, resetCode: string): 
     from: config.resendFrom,
     to: email,
     subject: "Reset your password",
-    html: `<p>Your password reset code is:</p><p style=\"font-size:28px;font-weight:700;letter-spacing:0.18em;\">${resetCode}</p><p>Enter this code in the Media Viewer app within 30 minutes.</p>`,
+    html: `<p>Your password reset code is:</p><p style=\"font-size:28px;font-weight:700;letter-spacing:0.18em;\">${resetCode}</p><p>Enter this code in the Finances app within 30 minutes.</p>`,
   });
 }

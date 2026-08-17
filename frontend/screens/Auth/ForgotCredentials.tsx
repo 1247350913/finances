@@ -26,9 +26,13 @@ export function ForgotCredentials() {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      await authClient.requestPasswordReset(emailTrimmed);
+      const result = await authClient.requestPasswordReset(emailTrimmed);
 
-      setSuccessMessage("If that email exists, a reset link has been sent.");
+      if (result?.resetCode) {
+        setSuccessMessage(`Dev reset code: ${result.resetCode}`);
+      } else {
+        setSuccessMessage("If that email exists, a reset link has been sent.");
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not send reset email.");

@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "./lib/db";
 import { authRouter } from "./auth/router";
+import { authConfig } from "./lib/authConfig";
+import { verifyAuthToken } from "./auth/token";
 
 loadEnv({ path: ".env.development" });
 loadEnv();
@@ -67,6 +69,110 @@ app.get("/api/heartbeat", async (_req, res) => {
     res.status(500).json({ ok: false, message: error?.message ?? "Could not reach Neon Postgres." });
   }
 });
+
+type AuthenticatedUser = {
+  id: string;
+  email: string;
+  auth_version: number;
+};
+
+async function getAuthenticatedUserFromCookie(req: express.Request): Promise<AuthenticatedUser | null> {
+  const token = req.cookies?.[authConfig.cookieName] as string | undefined;
+  if (!token) return null;
+
+  try {
+    const payload = verifyAuthToken(token);
+    const result = await db.query<AuthenticatedUser>(
+      "select id, email, auth_version from public.users where id = $1 limit 1",
+      [payload.sub]
+    );
+
+    const user = result.rows[0] ?? null;
+    if (!user || user.auth_version !== payload.tokenVersion) {
+      return null;
+    }
+
+    return user;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/overview", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUserFromCookie(req);
+    if (!user) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const [groupsResult, accountsResult, valuesResult, settingsResult] = await Promise.all([
+      db.query("select id, name from public.entry_groups where user_id = $1 order by position asc", [user.id]),
+      db.query("select id, group_id, name from public.entry_accounts where user_id = $1 order by position asc", [user.id]),
+      db.query("select account_id, year, value from public.entry_account_values where user_id = $1 order by year asc", [user.id]),
+      db.query(
+        "select start_year, end_year, overview_widgets, overview_chart_settings, overview_caption_md from public.entry_settings where user_id = $1 limit 1",
+        [user.id]
+      ),
+    ]);
+
+    res.json({
+      ok: true,
+      data: {
+        groups: groupsResult.rows,
+        accounts: accountsResult.rows,
+        values: valuesResult.rows,
+        settings: settingsResult.rows[0] ?? null,
+        birth_date: null,
+      },
+    });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ ok: false, error: error?.message ?? "Could not load overview data" });
+  }
+});
+
+app.patch("/api/overview/layout", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUserFromCookie(req);
+    if (!user) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const overviewWidgets = Array.isArray(body.overview_widgets) ? body.overview_widgets : [];
+    const overviewCaptionMd = typeof body.overview_caption_md === "string" ? body.overview_caption_md : "";
+    const overviewChartSettings =
+      body.overview_chart_settings && typeof body.overview_chart_settings === "object"
+        ? body.overview_chart_settings
+        : {};
+
+    await db.query(
+      `insert into public.entry_settings (
+         user_id,
+         overview_widgets,
+         overview_caption_md,
+         overview_chart_settings,
+         updated_at
+       )
+       values ($1, $2::jsonb, $3, $4::jsonb, now())
+       on conflict (user_id)
+       do update set
+         overview_widgets = excluded.overview_widgets,
+         overview_caption_md = excluded.overview_caption_md,
+         overview_chart_settings = excluded.overview_chart_settings,
+         updated_at = now()`,
+      [user.id, JSON.stringify(overviewWidgets), overviewCaptionMd, JSON.stringify(overviewChartSettings)]
+    );
+
+    res.json({ ok: true });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ ok: false, error: error?.message ?? "Could not save overview layout" });
+  }
+});
+
 app.get("/", (_req, res) => {
   res.json({ ok: true, message: "Backend server root found" });
 });

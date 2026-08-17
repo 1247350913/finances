@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Footer } from "../../components/Footer";
-import { ASSETS } from "../../lib";
+import { ASSETS, authClient } from "../../lib";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "./Entry.module.css";
 
@@ -203,6 +203,19 @@ export function Entry() {
     void loadEntryData();
   }, []);
 
+  async function getCurrentUserId() {
+    if (authClient.mode === "custom") {
+      const session = await authClient.getSession();
+      if (!session) throw new Error("Please sign in again.");
+      return session.userId;
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) throw userError;
+    if (!userData.user) throw new Error("Please sign in again.");
+    return userData.user.id;
+  }
+
   function cloneGroups(source: EntryGroup[]) {
     return source.map((group) => ({
       ...group,
@@ -310,12 +323,7 @@ export function Entry() {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
-
-      const userId = userData.user.id;
+      const userId = await getCurrentUserId();
 
       const [{ data: groupsData, error: groupsError }, { data: accountsData, error: accountsError }, { data: valuesData, error: valuesError }, { data: settingsData, error: settingsError }] = await Promise.all([
         supabase.from("entry_groups").select("id,name,position").eq("user_id", userId).order("position", { ascending: true }),
@@ -564,12 +572,7 @@ export function Entry() {
 
       setIsSaving(true);
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-
-      if (userError) throw userError;
-      if (!userData.user) throw new Error("Please sign in again.");
-
-      const userId = userData.user.id;
+        const userId = await getCurrentUserId();
   const activeYears = buildYearRange(validatedRange.startYear, validatedRange.endYear);
 
       const cleanedGroups = draftGroups.map((group, groupIndex) => ({

@@ -1,5 +1,5 @@
 import { apiUrl } from "./api";
-import { supabase } from "./supabaseClient";
+import { isSupabaseConfigured, supabase } from "./supabaseClient";
 
 export type AppAuthSession = {
   authenticated: true;
@@ -13,7 +13,24 @@ export type AppAuthSession = {
 
 export type AuthMode = "legacy-supabase" | "custom";
 
-const AUTH_MODE: AuthMode = import.meta.env.VITE_AUTH_MODE === "custom" ? "custom" : "legacy-supabase";
+export type SignUpResult = {
+  verificationCode?: string;
+};
+
+export type ResendCodeResult = {
+  verificationCode?: string;
+};
+
+export type PasswordResetRequestResult = {
+  resetCode?: string;
+};
+
+const AUTH_MODE: AuthMode =
+  import.meta.env.VITE_AUTH_MODE === "custom"
+    ? "custom"
+    : isSupabaseConfigured
+      ? "legacy-supabase"
+      : "custom";
 const AUTH_EVENT = "fin-auth-changed";
 
 function notifyAuthChanged() {
@@ -47,7 +64,20 @@ async function fetchAuth(path: string, init: RequestInit = {}) {
 
 async function getCustomSession(): Promise<AppAuthSession | null> {
   try {
-    const payload = await fetchAuth("/session", { method: "GET" });
+    const response = await fetch(apiUrl("/api/auth/session"), {
+      method: "GET",
+      credentials: "include",
+    });
+
+    if (response.status === 401) {
+      return null;
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw normalizeError(payload, "Authentication request failed.");
+    }
+
     return payload?.session ?? null;
   } catch {
     return null;
@@ -99,13 +129,16 @@ export const authClient = {
     notifyAuthChanged();
   },
 
-  async signUp(email: string, username: string, password: string): Promise<void> {
+  async signUp(email: string, username: string, password: string): Promise<SignUpResult> {
     if (AUTH_MODE === "custom") {
-      await fetchAuth("/signup", {
+      const payload = await fetchAuth("/signup", {
         method: "POST",
         body: JSON.stringify({ email, username, password }),
       });
-      return;
+      return {
+        verificationCode:
+          typeof payload?.verificationCode === "string" ? payload.verificationCode : undefined,
+      };
     }
 
     const { data, error } = await supabase.auth.signUp({ email, password });
@@ -118,6 +151,8 @@ export const authClient = {
     if ((data.user.identities?.length ?? 0) === 0) {
       throw new Error("This email is already registered. Try Sign In or reset your password.");
     }
+
+    return {};
   },
 
   async verifySignUp(email: string, code: string): Promise<void> {
@@ -139,32 +174,39 @@ export const authClient = {
     await supabase.auth.signOut();
   },
 
-  async resendSignUpCode(email: string): Promise<void> {
+  async resendSignUpCode(email: string): Promise<ResendCodeResult> {
     if (AUTH_MODE === "custom") {
-      await fetchAuth("/verify/request", {
+      const payload = await fetchAuth("/verify/request", {
         method: "POST",
         body: JSON.stringify({ email }),
       });
-      return;
+      return {
+        verificationCode:
+          typeof payload?.verificationCode === "string" ? payload.verificationCode : undefined,
+      };
     }
 
     const { error } = await supabase.auth.resend({ type: "signup", email });
     if (error) throw new Error(error.message);
+    return {};
   },
 
-  async requestPasswordReset(email: string): Promise<void> {
+  async requestPasswordReset(email: string): Promise<PasswordResetRequestResult> {
     if (AUTH_MODE === "custom") {
-      await fetchAuth("/password-reset/request", {
+      const payload = await fetchAuth("/password-reset/request", {
         method: "POST",
         body: JSON.stringify({ email }),
       });
-      return;
+      return {
+        resetCode: typeof payload?.resetCode === "string" ? payload.resetCode : undefined,
+      };
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
     if (error) throw new Error(error.message);
+    return {};
   },
 
   async resetPassword(email: string, codeOrPassword: string, maybePassword?: string): Promise<void> {
