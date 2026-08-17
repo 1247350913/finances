@@ -1608,7 +1608,7 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
           )}
 
           {!isLoading && accounts.length === 0 && mode !== "read" && (
-            <p className={styles.emptyState}>No accounts yet. Click Manage to add one.</p>
+            <p className={styles.emptyState}></p>
           )}
 
           {isLoading && <p className={styles.emptyState}>Loading accounts...</p>}

@@ -65,7 +65,7 @@ type ChartSettings = {
 
 type SeriesDefinition = {
   name: string;
-  values: number[];
+  values: Array<number | null>;
   color: string;
   style: LineStyle;
 };
@@ -576,8 +576,8 @@ export function Overview() {
     const selected = chartFilterSections.length > 0 ? chartFilterSections : [TOTAL_SERIES];
     return selected.map((name, index) => {
       const values = chartFilteredYears.map((year) => {
-        if (name === TOTAL_SERIES) return netWorthByYear.get(year) ?? 0;
-        return groupTotalsByYear.get(name)?.get(year) ?? 0;
+        if (name === TOTAL_SERIES) return netWorthByYear.get(year) ?? null;
+        return groupTotalsByYear.get(name)?.get(year) ?? null;
       });
       return {
         name,
@@ -618,7 +618,7 @@ export function Overview() {
     const usableWidth = width - left - right;
     const usableHeight = height - top - bottom;
 
-    const sourceValues = chartSeriesDefinitions.flatMap((series) => series.values);
+    const sourceValues = chartSeriesDefinitions.flatMap((series) => series.values.filter((value): value is number => value !== null));
     if (activeChartSettings.goalValue !== null) sourceValues.push(activeChartSettings.goalValue);
     if (sourceValues.length === 0) sourceValues.push(0);
 
@@ -902,7 +902,7 @@ export function Overview() {
                     value={formatNumberInput(draftChartSettings.yAxisStep)}
                     onChange={(event) => {
                       const parsed = parseNumberInput(event.target.value);
-                      if (!Number.isFinite(parsed) || parsed <= 0) return;
+                      if (parsed === null || !Number.isFinite(parsed) || parsed <= 0) return;
                       setDraftChartSettings((prev) => ({ ...prev, yAxisStep: Math.floor(parsed) }));
                     }}
                   />
@@ -1027,22 +1027,52 @@ export function Overview() {
             )}
 
             {chartSeriesDefinitions.map((series) => {
-              const points = series.values.map((value, index) => ({ x: chartGeometry.indexToX(index), y: chartGeometry.valueToY(value), value }));
+              type ChartPoint = { x: number; y: number; value: number; index: number };
+              const points = series.values.map((value, index) => (
+                value === null
+                  ? null
+                  : { x: chartGeometry.indexToX(index), y: chartGeometry.valueToY(value), value, index }
+              ));
+              const lineSegments: ChartPoint[][] = [];
+              let currentSegment: ChartPoint[] = [];
+
+              points.forEach((point) => {
+                if (point === null) {
+                  if (currentSegment.length > 0) {
+                    lineSegments.push(currentSegment);
+                    currentSegment = [];
+                  }
+                  return;
+                }
+
+                currentSegment.push(point);
+              });
+
+              if (currentSegment.length > 0) {
+                lineSegments.push(currentSegment);
+              }
+
+              const visiblePoints = points.filter((point): point is ChartPoint => point !== null);
               return (
                 <g key={`series-${series.name}`}>
-                  <polyline
-                    points={points.map((point) => `${point.x},${point.y}`).join(" ")}
-                    fill="none"
-                    stroke={series.color}
-                    strokeWidth="2.5"
-                    strokeDasharray={series.style === "dashed" ? "8 5" : undefined}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
+                  {lineSegments.map((segment, index) => (
+                    <polyline
+                      key={`line-${series.name}-${index}`}
+                      points={segment.map((point) => `${point.x},${point.y}`).join(" ")}
+                      fill="none"
+                      stroke={series.color}
+                      strokeWidth="2.5"
+                      strokeDasharray={series.style === "dashed" ? "8 5" : undefined}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  ))}
 
-                  {activeChartSettings.showDataPoints && points.map((point, index) => (
-                    <g key={`point-${series.name}-${index}`}>
+                  {(activeChartSettings.showDataPoints || activeChartSettings.showPointValues) && visiblePoints.map((point) => (
+                    <g key={`point-${series.name}-${point.index}`}>
+                      {activeChartSettings.showDataPoints && (
                       <circle cx={point.x} cy={point.y} r="3.5" fill={series.color} />
+                      )}
                       {activeChartSettings.showPointValues && (
                         <text x={point.x} y={point.y - 10} textAnchor="middle" className={styles.pointValueLabel} fill={series.color}>
                           ${formatMoney(point.value)}
