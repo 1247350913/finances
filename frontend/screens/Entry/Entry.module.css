@@ -1,10 +1,13 @@
 .entryShell {
 	width: 100%;
+	max-width: 100vw;
+	min-width: 0;
 	min-height: 100vh;
 	margin: 0;
 	background: #fff;
 	display: grid;
 	grid-template-rows: auto 1fr auto;
+	overflow-x: hidden;
 }
 
 .subnav {
@@ -12,8 +15,8 @@
 	border: none;
 	box-shadow: 0 1px 0 0 var(--border);
 	display: grid;
-	grid-template-columns: 1fr auto auto 1fr;
-	column-gap: 56px;
+	grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1fr);
+	column-gap: clamp(12px, 4vw, 56px);
 	align-items: center;
 	justify-items: center;
 	padding: 0 24px;
@@ -30,6 +33,7 @@
 	border: 1px solid transparent;
 	border-radius: 999px;
 	padding: 6px 14px;
+	white-space: nowrap;
 	background: transparent;
 	transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
@@ -58,13 +62,13 @@
 	justify-self: start;
 	margin-left: 8px;
 	font-family: var(--serif);
-	font-size: 24px;
+	font-size: clamp(16px, 4vw, 24px);
 }
 
 .subnavLink {
 	justify-self: center;
 	font-family: var(--serif);
-	font-size: 24px;
+	font-size: clamp(16px, 4vw, 24px);
 }
 
 .profileLink {
@@ -89,7 +93,8 @@
 
 .content {
 	padding: 28px 36px 48px;
-	overflow-x: auto;
+	min-width: 0;
+	overflow-x: hidden;
 }
 
 .toolbar {
@@ -108,6 +113,8 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
+	margin-left: auto;
+	justify-content: flex-end;
 }
 
 .yearRangeEditor {
@@ -152,6 +159,13 @@
 .tableWrap {
 	border: 1px solid var(--border);
 	margin-top: 10px;
+	width: 100%;
+	max-width: 100%;
+	overflow-x: hidden;
+}
+
+.tableWrapScrollable {
+	overflow-x: auto;
 }
 
 .entryTable {
@@ -177,7 +191,12 @@
 
 .entryTable th:first-child {
 	text-align: left;
-	width: 300px;
+	width: 280px;
+	min-width: 280px;
+}
+
+.entryTable td:first-child {
+	min-width: 280px;
 }
 
 .accountHeader {
@@ -279,6 +298,14 @@
 	align-items: center;
 }
 
+.accountCellEditing {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-wrap: nowrap;
+	min-width: max-content;
+}
+
 .accountNameEditor {
 	display: flex;
 	align-items: center;
@@ -287,11 +314,22 @@
 	width: 100%;
 }
 
+.accountCellEditing .accountNameEditor {
+	width: auto;
+	margin-right: auto;
+}
+
 .accountNameEditor > input {
-	min-width: 0;
+	min-width: 132px;
 	height: 32px;
 	width: 100%;
-	max-width: 250px;
+	max-width: none;
+}
+
+.accountCellEditing .accountNameEditor > input {
+	width: 12ch;
+	min-width: 12ch;
+	field-sizing: content;
 }
 
 .accountActions {
@@ -299,6 +337,13 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
+}
+
+.accountCellEditing .accountActions {
+	justify-self: start;
+	width: max-content;
+	flex-wrap: nowrap;
+	margin-left: auto;
 }
 
 .accountActions > button {
@@ -395,6 +440,9 @@
 }
 
 .valueInput {
+	width: 17ch;
+	min-width: 17ch;
+	max-width: 17ch;
 	text-align: right;
 }
 
@@ -441,12 +489,51 @@
 		font-size: 20px;
 	}
 
+	.content {
+		padding: 24px 20px 36px;
+	}
+
 	.toolbar {
-		flex-direction: column;
-		align-items: flex-start;
+		align-items: center;
+		gap: 10px;
 	}
 
 	.toolbarActions {
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+}
+
+@media (max-width: 760px) {
+	.subnav {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1fr);
+		align-items: center;
+		column-gap: 6px;
+		padding: 8px 10px;
+		height: auto;
+		min-height: 56px;
+	}
+
+	.backLink,
+	.subnavLink {
+		font-size: 16px;
+		padding: 4px 8px;
+	}
+
+	.backLink {
+		margin-left: 0;
+	}
+
+	.profileLink {
+		margin-right: 0;
+	}
+
+	.content {
+		padding: 18px 10px 28px;
+	}
+
+	.yearRangeEditor {
 		flex-wrap: wrap;
 	}
 }

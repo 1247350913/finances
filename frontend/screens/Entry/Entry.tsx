@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Footer } from "../../components/Footer";
-import { ASSETS, authClient } from "../../lib";
+import { ASSETS, apiUrl, authClient } from "../../lib";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "./Entry.module.css";
 
@@ -323,19 +323,50 @@ export function Entry() {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const userId = await getCurrentUserId();
+      let groupsData: any[] = [];
+      let accountsData: any[] = [];
+      let valuesData: any[] = [];
+      let settingsData: any[] = [];
 
-      const [{ data: groupsData, error: groupsError }, { data: accountsData, error: accountsError }, { data: valuesData, error: valuesError }, { data: settingsData, error: settingsError }] = await Promise.all([
-        supabase.from("entry_groups").select("id,name,position").eq("user_id", userId).order("position", { ascending: true }),
-        supabase.from("entry_accounts").select("id,group_id,name,coin_symbol,position").eq("user_id", userId).order("position", { ascending: true }),
-        supabase.from("entry_account_values").select("account_id,year,value").eq("user_id", userId).order("year", { ascending: true }),
-        supabase.from("entry_settings").select("start_year,end_year").eq("user_id", userId).limit(1),
-      ]);
+      if (authClient.mode === "custom") {
+        const response = await fetch(apiUrl("/api/entry"), {
+          method: "GET",
+          credentials: "include",
+        });
 
-      if (groupsError) throw groupsError;
-      if (accountsError) throw accountsError;
-      if (valuesError) throw valuesError;
-      if (settingsError) throw settingsError;
+        if (response.status === 401) {
+          throw new Error("Please sign in again.");
+        }
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(payload?.error ?? payload?.message ?? "Could not load entry data."));
+        }
+
+        groupsData = Array.isArray(payload?.data?.groups) ? payload.data.groups : [];
+        accountsData = Array.isArray(payload?.data?.accounts) ? payload.data.accounts : [];
+        valuesData = Array.isArray(payload?.data?.values) ? payload.data.values : [];
+        settingsData = payload?.data?.settings ? [payload.data.settings] : [];
+      } else {
+        const userId = await getCurrentUserId();
+
+        const [{ data: groupsRows, error: groupsError }, { data: accountsRows, error: accountsError }, { data: valuesRows, error: valuesError }, { data: settingsRows, error: settingsError }] = await Promise.all([
+          supabase.from("entry_groups").select("id,name,position").eq("user_id", userId).order("position", { ascending: true }),
+          supabase.from("entry_accounts").select("id,group_id,name,coin_symbol,position").eq("user_id", userId).order("position", { ascending: true }),
+          supabase.from("entry_account_values").select("account_id,year,value").eq("user_id", userId).order("year", { ascending: true }),
+          supabase.from("entry_settings").select("start_year,end_year").eq("user_id", userId).limit(1),
+        ]);
+
+        if (groupsError) throw groupsError;
+        if (accountsError) throw accountsError;
+        if (valuesError) throw valuesError;
+        if (settingsError) throw settingsError;
+
+        groupsData = groupsRows ?? [];
+        accountsData = accountsRows ?? [];
+        valuesData = valuesRows ?? [];
+        settingsData = settingsRows ?? [];
+      }
 
       const valuesByAccount = new Map<string, Partial<Record<number, string>>>();
 
@@ -366,7 +397,7 @@ export function Entry() {
         accounts: accountsByGroup.get(groupRow.id) ?? [],
       }));
 
-      const settingsRow = settingsData?.[0];
+      const settingsRow = settingsData[0];
       const nextYearStart = settingsRow?.start_year ?? null;
       const nextYearEnd = settingsRow?.end_year ?? null;
 
@@ -421,7 +452,12 @@ export function Entry() {
   function addAccount(groupId: string) {
     setDraftGroups((prev) =>
       prev.map((group) =>
-        group.id === groupId ? { ...group, accounts: [...group.accounts, createAccount()] } : group
+        group.id === groupId
+          ? {
+              ...group,
+              accounts: [...group.accounts, createAccount(`Account ${group.accounts.length + 1}`)],
+            }
+          : group
       )
     );
   }
@@ -571,9 +607,8 @@ export function Entry() {
       }
 
       setIsSaving(true);
-
         const userId = await getCurrentUserId();
-  const activeYears = buildYearRange(validatedRange.startYear, validatedRange.endYear);
+        const activeYears = buildYearRange(validatedRange.startYear, validatedRange.endYear);
 
       const cleanedGroups = draftGroups.map((group, groupIndex) => ({
         id: group.id,
@@ -618,50 +653,72 @@ export function Entry() {
         )
       );
 
-      const { error: deleteValuesError } = await supabase.from("entry_account_values").delete().eq("user_id", userId);
-      if (deleteValuesError) throw deleteValuesError;
-
-      const { error: deleteAccountsError } = await supabase.from("entry_accounts").delete().eq("user_id", userId);
-      if (deleteAccountsError) throw deleteAccountsError;
-
-      const { error: deleteGroupsError } = await supabase.from("entry_groups").delete().eq("user_id", userId);
-      if (deleteGroupsError) throw deleteGroupsError;
-
-      if (cleanedGroups.length > 0) {
-        const { error: insertGroupsError } = await supabase.from("entry_groups").insert(
-          cleanedGroups.map((group) => ({
-            id: group.id,
-            user_id: group.user_id,
-            name: group.name,
-            position: group.position,
-          }))
-        );
-
-        if (insertGroupsError) throw insertGroupsError;
-      }
-
-      if (accountRows.length > 0) {
-        const { error: insertAccountsError } = await supabase.from("entry_accounts").insert(accountRows);
-        if (insertAccountsError) throw insertAccountsError;
-      }
-
-      if (valueRows.length > 0) {
-        const { error: insertValuesError } = await supabase.from("entry_account_values").insert(valueRows);
-        if (insertValuesError) throw insertValuesError;
-      }
-
-      if (validatedRange.startYear === null && validatedRange.endYear === null) {
-        const { error: deleteSettingsError } = await supabase.from("entry_settings").delete().eq("user_id", userId);
-        if (deleteSettingsError) throw deleteSettingsError;
-      } else {
-        const { error: upsertSettingsError } = await supabase.from("entry_settings").upsert({
-          user_id: userId,
-          start_year: validatedRange.startYear,
-          end_year: validatedRange.endYear,
-          updated_at: new Date().toISOString(),
+      if (authClient.mode === "custom") {
+        const response = await fetch(apiUrl("/api/entry"), {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            groups: cleanedGroups,
+            startYear: validatedRange.startYear,
+            endYear: validatedRange.endYear,
+          }),
         });
 
-        if (upsertSettingsError) throw upsertSettingsError;
+        if (response.status === 401) {
+          throw new Error("Please sign in again.");
+        }
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(payload?.error ?? payload?.message ?? "Could not save entry data."));
+        }
+      } else {
+        const { error: deleteValuesError } = await supabase.from("entry_account_values").delete().eq("user_id", userId);
+        if (deleteValuesError) throw deleteValuesError;
+
+        const { error: deleteAccountsError } = await supabase.from("entry_accounts").delete().eq("user_id", userId);
+        if (deleteAccountsError) throw deleteAccountsError;
+
+        const { error: deleteGroupsError } = await supabase.from("entry_groups").delete().eq("user_id", userId);
+        if (deleteGroupsError) throw deleteGroupsError;
+
+        if (cleanedGroups.length > 0) {
+          const { error: insertGroupsError } = await supabase.from("entry_groups").insert(
+            cleanedGroups.map((group) => ({
+              id: group.id,
+              user_id: group.user_id,
+              name: group.name,
+              position: group.position,
+            }))
+          );
+
+          if (insertGroupsError) throw insertGroupsError;
+        }
+
+        if (accountRows.length > 0) {
+          const { error: insertAccountsError } = await supabase.from("entry_accounts").insert(accountRows);
+          if (insertAccountsError) throw insertAccountsError;
+        }
+
+        if (valueRows.length > 0) {
+          const { error: insertValuesError } = await supabase.from("entry_account_values").insert(valueRows);
+          if (insertValuesError) throw insertValuesError;
+        }
+
+        if (validatedRange.startYear === null && validatedRange.endYear === null) {
+          const { error: deleteSettingsError } = await supabase.from("entry_settings").delete().eq("user_id", userId);
+          if (deleteSettingsError) throw deleteSettingsError;
+        } else {
+          const { error: upsertSettingsError } = await supabase.from("entry_settings").upsert({
+            user_id: userId,
+            start_year: validatedRange.startYear,
+            end_year: validatedRange.endYear,
+            updated_at: new Date().toISOString(),
+          });
+
+          if (upsertSettingsError) throw upsertSettingsError;
+        }
       }
 
       const persistedGroups: EntryGroup[] = cleanedGroups.map((group) => ({
@@ -752,7 +809,7 @@ export function Entry() {
           </div>
         </div>
 
-        <div className={styles.tableWrap}>
+        <div className={`${styles.tableWrap} ${displayGroups.length > 0 ? styles.tableWrapScrollable : ""}`}>
           <table className={styles.entryTable}>
             <thead>
               <tr>
@@ -853,7 +910,7 @@ export function Entry() {
                       }}
                     >
                       <td>
-                        <div className={styles.accountCell}>
+                        <div className={`${styles.accountCell} ${isEditing ? styles.accountCellEditing : ""}`}>
                           {isEditing ? (
                             <>
                               <button

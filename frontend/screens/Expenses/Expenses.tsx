@@ -190,6 +190,28 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
     setExpandedReadGroupKeys([]);
   }, [readMonthDetailMonthKey]);
 
+  async function fetchCustom<T = any>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(apiUrl(path), {
+      credentials: "include",
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+
+    if (response.status === 401) {
+      throw new Error("Please sign in again.");
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(payload?.error ?? payload?.message ?? "Request failed."));
+    }
+
+    return payload as T;
+  }
+
   async function getCurrentUserId() {
     if (authClient.mode === "custom") {
       const session = await authClient.getSession();
@@ -208,18 +230,25 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const userId = await getCurrentUserId();
+      if (authClient.mode === "custom") {
+        const payload = await fetchCustom<{ data?: ExpenseAccount[] }>("/api/expenses/accounts", {
+          method: "GET",
+        });
+        setAccounts(payload.data ?? []);
+      } else {
+        const userId = await getCurrentUserId();
 
-      const { data, error } = await supabase
-        .from("accounts")
-        .select("id,name,institution,card_image_data_url,parser_file_name,parser_source")
-        .eq("user_id", userId)
-        .eq("account_type", "expense")
-        .eq("archived", false)
-        .order("created_at", { ascending: true });
+        const { data, error } = await supabase
+          .from("accounts")
+          .select("id,name,institution,card_image_data_url,parser_file_name,parser_source")
+          .eq("user_id", userId)
+          .eq("account_type", "expense")
+          .eq("archived", false)
+          .order("created_at", { ascending: true });
 
-      if (error) throw error;
-      setAccounts(data ?? []);
+        if (error) throw error;
+        setAccounts(data ?? []);
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load expense accounts.");
@@ -254,22 +283,35 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const userId = await getCurrentUserId();
-
       const cardImageDataUrl = cardImageFile ? await readFileAsDataUrl(cardImageFile) : null;
       const parserSource = await readFileAsText(parserFile);
 
-      const { error } = await supabase.from("accounts").insert({
-        user_id: userId,
-        name,
-        institution: last4.length > 0 ? last4 : null,
-        account_type: "expense",
-        card_image_data_url: cardImageDataUrl,
-        parser_file_name: parserFile.name,
-        parser_source: parserSource,
-      });
+      if (authClient.mode === "custom") {
+        await fetchCustom("/api/expenses/accounts", {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            institution: last4.length > 0 ? last4 : null,
+            card_image_data_url: cardImageDataUrl,
+            parser_file_name: parserFile.name,
+            parser_source: parserSource,
+          }),
+        });
+      } else {
+        const userId = await getCurrentUserId();
 
-      if (error) throw error;
+        const { error } = await supabase.from("accounts").insert({
+          user_id: userId,
+          name,
+          institution: last4.length > 0 ? last4 : null,
+          account_type: "expense",
+          card_image_data_url: cardImageDataUrl,
+          parser_file_name: parserFile.name,
+          parser_source: parserSource,
+        });
+
+        if (error) throw error;
+      }
 
       setAddForm(INITIAL_ADD_FORM);
       setCardImageFile(null);
@@ -289,17 +331,25 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
     try {
       setErrorMessage(null);
 
-      const userId = await getCurrentUserId();
+      if (authClient.mode === "custom") {
+        const payload = await fetchCustom<{ data?: AccountStatement[] }>(
+          `/api/expenses/statements?accountId=${encodeURIComponent(accountId)}`,
+          { method: "GET" }
+        );
+        setStatements(payload.data ?? []);
+      } else {
+        const userId = await getCurrentUserId();
 
-      const { data, error } = await supabase
-        .from("account_statements")
-        .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
-        .eq("user_id", userId)
-        .eq("account_id", accountId)
-        .order("statement_date", { ascending: true });
+        const { data, error } = await supabase
+          .from("account_statements")
+          .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
+          .eq("user_id", userId)
+          .eq("account_id", accountId)
+          .order("statement_date", { ascending: true });
 
-      if (error) throw error;
-      setStatements(data ?? []);
+        if (error) throw error;
+        setStatements(data ?? []);
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load statements.");
@@ -311,17 +361,25 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setIsReadSummaryLoading(true);
       setErrorMessage(null);
 
-      const userId = await getCurrentUserId();
+      if (authClient.mode === "custom") {
+        const payload = await fetchCustom<{ data?: AccountStatement[] }>(
+          `/api/expenses/statements?accountIds=${encodeURIComponent(accountIds.join(","))}`,
+          { method: "GET" }
+        );
+        setAllStatements(payload.data ?? []);
+      } else {
+        const userId = await getCurrentUserId();
 
-      const { data, error } = await supabase
-        .from("account_statements")
-        .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
-        .eq("user_id", userId)
-        .in("account_id", accountIds)
-        .order("statement_date", { ascending: true });
+        const { data, error } = await supabase
+          .from("account_statements")
+          .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
+          .eq("user_id", userId)
+          .in("account_id", accountIds)
+          .order("statement_date", { ascending: true });
 
-      if (error) throw error;
-      setAllStatements(data ?? []);
+        if (error) throw error;
+        setAllStatements(data ?? []);
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load statement summaries.");
@@ -364,12 +422,19 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
         updatePayload.parser_source = await readFileAsText(editParserFile);
       }
 
-      const { error } = await supabase
-        .from("accounts")
-        .update(updatePayload)
-        .eq("id", editAccount.id);
+      if (authClient.mode === "custom") {
+        await fetchCustom(`/api/expenses/accounts/${encodeURIComponent(editAccount.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(updatePayload),
+        });
+      } else {
+        const { error } = await supabase
+          .from("accounts")
+          .update(updatePayload)
+          .eq("id", editAccount.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       setEditAccount(null);
       setEditCardImageFile(null);
@@ -389,12 +454,18 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setIsEditSaving(true);
       setErrorMessage(null);
 
-      const { error } = await supabase
-        .from("accounts")
-        .update({ archived: true })
-        .eq("id", accountId);
+      if (authClient.mode === "custom") {
+        await fetchCustom(`/api/expenses/accounts/${encodeURIComponent(accountId)}/archive`, {
+          method: "PATCH",
+        });
+      } else {
+        const { error } = await supabase
+          .from("accounts")
+          .update({ archived: true })
+          .eq("id", accountId);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       setEditAccount(null);
       setStatusMessage("Account archived.");
@@ -414,12 +485,18 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setIsEditSaving(true);
       setErrorMessage(null);
 
-      const { error } = await supabase
-        .from("accounts")
-        .delete()
-        .eq("id", accountId);
+      if (authClient.mode === "custom") {
+        await fetchCustom(`/api/expenses/accounts/${encodeURIComponent(accountId)}`, {
+          method: "DELETE",
+        });
+      } else {
+        const { error } = await supabase
+          .from("accounts")
+          .delete()
+          .eq("id", accountId);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       setEditAccount(null);
       setStatusMessage("Account deleted.");
@@ -457,19 +534,28 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const userId = await getCurrentUserId();
+      let existingCount = 0;
+      if (authClient.mode === "custom") {
+        const payload = await fetchCustom<{ exists?: boolean }>(
+          `/api/expenses/statements/existing?accountId=${encodeURIComponent(selectedAccount.id)}&statementDate=${encodeURIComponent(statementDateValue)}`,
+          { method: "GET" }
+        );
+        existingCount = payload.exists ? 1 : 0;
+      } else {
+        const userId = await getCurrentUserId();
+        const { data: existing, error: existingError } = await supabase
+          .from("account_statements")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("account_id", selectedAccount.id)
+          .eq("statement_date", statementDateValue)
+          .limit(1);
 
-      const { data: existing, error: existingError } = await supabase
-        .from("account_statements")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("account_id", selectedAccount.id)
-        .eq("statement_date", statementDateValue)
-        .limit(1);
+        if (existingError) throw existingError;
+        existingCount = (existing ?? []).length;
+      }
 
-      if (existingError) throw existingError;
-
-      if ((existing ?? []).length > 0) {
+      if (existingCount > 0) {
         const shouldReplace = window.confirm("A statement already exists for that month. Replace it?");
         if (!shouldReplace) {
           setStatusMessage("Upload canceled.");
@@ -482,7 +568,6 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       const parsed_result = JSON.stringify(parsedSummary);
 
       const statementPayload = {
-        user_id: userId,
         account_id: selectedAccount.id,
         statement_date: statementDateValue,
         file_name: statementFile.name,
@@ -490,11 +575,19 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
         parsed_result,
       };
 
-      const { error } = await supabase
-        .from("account_statements")
-        .upsert(statementPayload, { onConflict: "account_id,statement_date" });
+      if (authClient.mode === "custom") {
+        await fetchCustom("/api/expenses/statements", {
+          method: "PUT",
+          body: JSON.stringify(statementPayload),
+        });
+      } else {
+        const userId = await getCurrentUserId();
+        const { error } = await supabase
+          .from("account_statements")
+          .upsert({ ...statementPayload, user_id: userId }, { onConflict: "account_id,statement_date" });
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       setStatementDate("");
       setStatementFile(null);
@@ -518,15 +611,25 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
 
       const parserSource = await readFileAsText(file);
 
-      const { error } = await supabase
-        .from("accounts")
-        .update({
-          parser_file_name: file.name,
-          parser_source: parserSource,
-        })
-        .eq("id", activeManageAccount.id);
+      if (authClient.mode === "custom") {
+        await fetchCustom(`/api/expenses/accounts/${encodeURIComponent(activeManageAccount.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            parser_file_name: file.name,
+            parser_source: parserSource,
+          }),
+        });
+      } else {
+        const { error } = await supabase
+          .from("accounts")
+          .update({
+            parser_file_name: file.name,
+            parser_source: parserSource,
+          })
+          .eq("id", activeManageAccount.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       const reparseResult = await reparseExistingStatementsForAccount(activeManageAccount.id, parserSource);
       if (reparseResult.failedCount > 0) {
@@ -545,18 +648,26 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   }
 
   async function reparseExistingStatementsForAccount(accountId: string, parserSource: string) {
-    const userId = await getCurrentUserId();
+    let statements: Array<{ id: string; file_name: string; file_data_url: string }> = [];
+    if (authClient.mode === "custom") {
+      const payload = await fetchCustom<{ data?: Array<{ id: string; file_name: string; file_data_url: string }> }>(
+        `/api/expenses/statements?accountId=${encodeURIComponent(accountId)}`,
+        { method: "GET" }
+      );
+      statements = payload.data ?? [];
+    } else {
+      const userId = await getCurrentUserId();
+      const { data: statementsData, error: statementsError } = await supabase
+        .from("account_statements")
+        .select("id,file_name,file_data_url")
+        .eq("user_id", userId)
+        .eq("account_id", accountId)
+        .order("statement_date", { ascending: true });
 
-    const { data: statementsData, error: statementsError } = await supabase
-      .from("account_statements")
-      .select("id,file_name,file_data_url")
-      .eq("user_id", userId)
-      .eq("account_id", accountId)
-      .order("statement_date", { ascending: true });
+      if (statementsError) throw statementsError;
+      statements = statementsData ?? [];
+    }
 
-    if (statementsError) throw statementsError;
-
-    const statements = statementsData ?? [];
     let failedCount = 0;
 
     for (const statement of statements) {
@@ -567,13 +678,21 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
           statement.file_data_url
         );
 
-        const { error: updateError } = await supabase
-          .from("account_statements")
-          .update({ parsed_result: JSON.stringify(parsedSummary) })
-          .eq("id", statement.id)
-          .eq("user_id", userId);
+        if (authClient.mode === "custom") {
+          await fetchCustom(`/api/expenses/statements/${encodeURIComponent(statement.id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ parsed_result: JSON.stringify(parsedSummary) }),
+          });
+        } else {
+          const userId = await getCurrentUserId();
+          const { error: updateError } = await supabase
+            .from("account_statements")
+            .update({ parsed_result: JSON.stringify(parsedSummary) })
+            .eq("id", statement.id)
+            .eq("user_id", userId);
 
-        if (updateError) throw updateError;
+          if (updateError) throw updateError;
+        }
       } catch (error) {
         console.error("Failed to re-parse statement", statement.id, error);
         failedCount += 1;
@@ -643,15 +762,23 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   async function loadManageStatements(accountId: string) {
     try {
       setErrorMessage(null);
-      const userId = await getCurrentUserId();
-      const { data, error } = await supabase
-        .from("account_statements")
-        .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
-        .eq("user_id", userId)
-        .eq("account_id", accountId)
-        .order("statement_date", { ascending: true });
-      if (error) throw error;
-      setManageStatements(data ?? []);
+      if (authClient.mode === "custom") {
+        const payload = await fetchCustom<{ data?: AccountStatement[] }>(
+          `/api/expenses/statements?accountId=${encodeURIComponent(accountId)}`,
+          { method: "GET" }
+        );
+        setManageStatements(payload.data ?? []);
+      } else {
+        const userId = await getCurrentUserId();
+        const { data, error } = await supabase
+          .from("account_statements")
+          .select("id,account_id,statement_date,file_name,file_data_url,parsed_result")
+          .eq("user_id", userId)
+          .eq("account_id", accountId)
+          .order("statement_date", { ascending: true });
+        if (error) throw error;
+        setManageStatements(data ?? []);
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load statements.");
@@ -667,17 +794,26 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const userId = await getCurrentUserId();
+      let existingCount = 0;
+      if (authClient.mode === "custom") {
+        const payload = await fetchCustom<{ exists?: boolean }>(
+          `/api/expenses/statements/existing?accountId=${encodeURIComponent(activeManageAccount.id)}&statementDate=${encodeURIComponent(statementDateValue)}`,
+          { method: "GET" }
+        );
+        existingCount = payload.exists ? 1 : 0;
+      } else {
+        const userId = await getCurrentUserId();
+        const { data: existing } = await supabase
+          .from("account_statements")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("account_id", activeManageAccount.id)
+          .eq("statement_date", statementDateValue)
+          .limit(1);
+        existingCount = (existing ?? []).length;
+      }
 
-      const { data: existing } = await supabase
-        .from("account_statements")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("account_id", activeManageAccount.id)
-        .eq("statement_date", statementDateValue)
-        .limit(1);
-
-      if ((existing ?? []).length > 0) {
+      if (existingCount > 0) {
         const shouldReplace = window.confirm("A statement already exists for that month. Replace it?");
         if (!shouldReplace) {
           setStatusMessage("Upload canceled.");
@@ -690,7 +826,6 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
       const parsed_result = JSON.stringify(parsedSummary);
 
       const statementPayload = {
-        user_id: userId,
         account_id: activeManageAccount.id,
         statement_date: statementDateValue,
         file_name: manageStatementFile.name,
@@ -698,11 +833,19 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
         parsed_result,
       };
 
-      const { error } = await supabase
-        .from("account_statements")
-        .upsert(statementPayload, { onConflict: "account_id,statement_date" });
+      if (authClient.mode === "custom") {
+        await fetchCustom("/api/expenses/statements", {
+          method: "PUT",
+          body: JSON.stringify(statementPayload),
+        });
+      } else {
+        const userId = await getCurrentUserId();
+        const { error } = await supabase
+          .from("account_statements")
+          .upsert({ ...statementPayload, user_id: userId }, { onConflict: "account_id,statement_date" });
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       setManageStatementDate("");
       setManageStatementFile(null);
