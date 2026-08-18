@@ -123,10 +123,3 @@ create trigger entry_settings_set_updated_at
 before update on public.entry_settings
 for each row
 execute procedure public.set_updated_at_timestamp();
-
-create table if not exists public.heartbeat (
-  id int primary key,
-  checked_at timestamptz default now()
-);
-
-insert into public.heartbeat (id) values (1) on conflict (id) do nothing;

@@ -70,7 +70,7 @@ pnpm build
 ## Project Structure
 
 ```
-├── src/                    # Frontend React application
+├── frontend/               # Frontend React application
 │   ├── app/               # App root component and routes
 │   ├── components/        # Reusable React components
 │   ├── screens/           # Full-page screens
@@ -134,7 +134,7 @@ The app supports a migration-safe auth strategy:
 - Server-managed JWT session cookie
 - Legacy Supabase mode toggle with `VITE_AUTH_MODE=legacy-supabase`
 
-See [src/screens/Auth/](src/screens/Auth/) for the authentication screens.
+See [frontend/screens/Auth/](frontend/screens/Auth/) for the authentication screens.
 
 ## Expense Management
 
@@ -180,8 +180,6 @@ Your parser must export a `parse_statement_text(statement_text)` function that r
 ## Database
 
 Database schema and migrations are stored in the [database/](database/) directory. Run migrations as part of your deployment process.
-
-The backend exposes a Neon heartbeat endpoint at `/api/heartbeat`. Hitting it weekly updates `heartbeat.checked_at`, so you can verify database connectivity for both dev and prod.
 
 ## Contributing
 
