@@ -136,9 +136,9 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
   const manageStatementsByYearMonth = useMemo(() => {
     const map = new Map<number, Map<number, AccountStatement>>();
     for (const stmt of manageStatements) {
-      const d = new Date(`${stmt.statement_date}T00:00:00`);
-      const year = d.getFullYear();
-      const month = d.getMonth() + 1;
+      const yearMonth = parseYearMonthFromStatementDate(stmt.statement_date);
+      if (!yearMonth) continue;
+      const { year, month } = yearMonth;
       if (!map.has(year)) map.set(year, new Map());
       map.get(year)!.set(month, stmt);
     }
@@ -2015,6 +2015,19 @@ function openDataUrlInTab(dataUrl: string, fileName: string) {
 
 function monthToStatementDate(value: string) {
   return `${value}-01`;
+}
+
+function parseYearMonthFromStatementDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})/);
+  if (!match) return null;
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return null;
+  }
+
+  return { year, month };
 }
 
 function formatMonthLabel(value: string) {
