@@ -6,7 +6,7 @@ A personal finance management platform for tracking expenses, monitoring account
 
 ## Features
 
-- **Secure Authentication**: Email-based sign-up and login powered by Supabase
+- **Secure Authentication**: Email-based sign-up and login (custom server auth, with legacy Supabase mode during migration)
 - **Expense Tracking**: Log and categorize expenses with a clean, intuitive interface
 - **Bank Statement Parser**: Automatically parse and import expenses from bank statements (PDF, CSV, and text formats)
 - **Custom Parsers**: Create and test custom statement parsers for your specific bank format
@@ -20,17 +20,17 @@ A personal finance management platform for tracking expenses, monitoring account
 - **React 19** with TypeScript
 - **Vite** for fast build and dev experience
 - **React Router** for navigation
-- **Supabase JS** for authentication and real-time updates
+- **Custom auth client** for server-managed sessions (legacy Supabase mode supported during migration)
 - **CSS Modules** for component-scoped styling
 
 ### Backend
 - **Express.js** with TypeScript
 - **Node.js** runtime
-- **Supabase** for database and authentication
+- **Express.js API** with Neon Postgres and custom auth
 - **Python** integration for statement parsing
 
 ### Database
-- **PostgreSQL** (via Supabase)
+- **PostgreSQL** (Neon)
 - SQL migrations for schema management
 - Secure user authentication
 
@@ -39,7 +39,7 @@ A personal finance management platform for tracking expenses, monitoring account
 ### Prerequisites
 - Node.js 18+ and pnpm 10+
 - Python 3.8+ (for statement parsing features)
-- A Supabase project and credentials
+- A Neon Postgres database URL
 
 ### Installation
 
@@ -50,8 +50,9 @@ pnpm install
 ```
 
 3. Set up environment variables:
-   - Create `.env.development` with your Supabase credentials
-   - Backend and frontend will read their respective configs
+	- Create `.env.development` from `.env.development.example`
+	- Set `DATABASE_URL` and `JWT_SECRET` for custom auth + Neon
+	- Keep legacy Supabase values only while migrating remaining data flows
 
 4. Start development:
 ```bash
@@ -127,11 +128,11 @@ Optional release step:
 
 ### Authentication Flow
 
-The app uses Supabase for secure email-based authentication:
+The app supports a migration-safe auth strategy:
 - Users sign up or log in with email
 - OTP verification via email
-- JWT-based session management
-- Automatic token refresh
+- Server-managed JWT session cookie
+- Legacy Supabase mode toggle with `VITE_AUTH_MODE=legacy-supabase`
 
 See [src/screens/Auth/](src/screens/Auth/) for the authentication screens.
 
@@ -180,7 +181,7 @@ Your parser must export a `parse_statement_text(statement_text)` function that r
 
 Database schema and migrations are stored in the [database/](database/) directory. Run migrations as part of your deployment process.
 
-The backend exposes a Supabase heartbeat endpoint at `/api/heartbeat`. Hitting it weekly updates `heartbeat.checked_at`, so you can verify the last successful run in Supabase for both dev and prod. Configure your server runtime with `SUPABASE_SERVICE_ROLE_KEY`, then have a cron job or uptime monitor call the dev and prod URLs separately.
+The backend exposes a Neon heartbeat endpoint at `/api/heartbeat`. Hitting it weekly updates `heartbeat.checked_at`, so you can verify database connectivity for both dev and prod.
 
 ## Contributing
 
