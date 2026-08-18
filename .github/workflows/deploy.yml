@@ -146,6 +146,11 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          cat > cloudrun-env.yaml <<'EOF'
+          NODE_ENV: "production"
+          ALLOWED_ORIGINS: "https://finances.lnks.info,https://www.finances.lnks.info,https://finances.pages.dev"
+          EOF
+
           gcloud run deploy finances-api \
             --image "$IMAGE" \
             --region "${{ secrets.GCR_REGION }}" \
@@ -156,5 +161,5 @@ jobs:
             --memory 512Mi \
             --cpu 1 \
             --timeout 60s \
-            --set-env-vars "NODE_ENV=production,ALLOWED_ORIGINS=https://finances.lnks.info,https://www.finances.lnks.info,https://finances.pages.dev"
+            --env-vars-file cloudrun-env.yaml
 

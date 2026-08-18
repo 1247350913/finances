@@ -51,24 +51,6 @@ app.use("/api/auth", authRouter);
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, message: "Backend server is running" });
 });
-app.get("/api/heartbeat", async (_req, res) => {
-  try {
-    const checkedAt = new Date().toISOString();
-    const result = await db.query<{ id: number; checked_at: string }>(
-      `insert into public.heartbeat (id, checked_at)
-       values (1, $1)
-       on conflict (id)
-       do update set checked_at = excluded.checked_at
-       returning id, checked_at`,
-      [checkedAt]
-    );
-
-    res.json({ ok: true, heartbeat: result.rows[0] ?? { id: 1, checked_at: checkedAt } });
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ ok: false, message: error?.message ?? "Could not reach Neon Postgres." });
-  }
-});
 
 type AuthenticatedUser = {
   id: string;
