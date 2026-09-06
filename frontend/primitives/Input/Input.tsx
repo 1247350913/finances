@@ -20,6 +20,9 @@ export function Input({ type, value, onChange }: Props) {
       case "email":
         return { inputType: "email", Icon: UserRound };
 
+      case "code entry":
+        return { inputType: "text", Icon: UserRound };
+
       case "password":
         return { inputType: showPassword ? "text" : "password", Icon: LockKeyhole };
     }

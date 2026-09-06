@@ -17,7 +17,7 @@ export default function CodeEntryPage() {
             <div className={styles.inlineForm}>
               <Input type="code entry" value={code} onChange={(e) => setCode(e.target.value)}/>
             </div>
-            <div className={styles.buttonRow}><Button type="submit">Verify</Button></div>
+            <div className={styles.buttonRow}><Button type="submit" text="Verify" /></div>
           </form>
         </AuthCard>
       </div>
