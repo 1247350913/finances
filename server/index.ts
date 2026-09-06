@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "./lib/db";
-import { authRouter } from "./auth/router";
+import { authRouter, formatDateOnly } from "./auth/router";
 import { authConfig } from "./lib/authConfig";
 import { verifyAuthToken } from "./auth/token";
 
@@ -47,6 +47,26 @@ app.use(
 app.use(cookieParser());
 app.use(express.json({ limit: "25mb" }));
 app.use("/api/auth", authRouter);
+
+async function initDb() {
+  try {
+    await db.query(`
+      alter table public.entry_account_values
+      add column if not exists conversion_rate text;
+    `);
+    await db.query(`
+      alter table public.entry_accounts
+      add column if not exists is_debt boolean not null default false;
+    `);
+    await db.query(`
+      alter table public.users
+      add column if not exists birth_date date;
+    `);
+  } catch (err) {
+    console.warn("Could not check/migrate entry schema:", err);
+  }
+}
+void initDb();
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, message: "Backend server is running" });
@@ -88,14 +108,15 @@ app.get("/api/overview", async (req, res) => {
       return;
     }
 
-    const [groupsResult, accountsResult, valuesResult, settingsResult] = await Promise.all([
+    const [groupsResult, accountsResult, valuesResult, settingsResult, userResult] = await Promise.all([
       db.query("select id, name from public.entry_groups where user_id = $1 order by position asc", [user.id]),
-      db.query("select id, group_id, name from public.entry_accounts where user_id = $1 order by position asc", [user.id]),
-      db.query("select account_id, year, value from public.entry_account_values where user_id = $1 order by year asc", [user.id]),
+      db.query("select id, group_id, name, coin_symbol, is_debt from public.entry_accounts where user_id = $1 order by position asc", [user.id]),
+      db.query("select account_id, year, value, conversion_rate from public.entry_account_values where user_id = $1 order by year asc", [user.id]),
       db.query(
         "select start_year, end_year, overview_widgets, overview_chart_settings, overview_caption_md from public.entry_settings where user_id = $1 limit 1",
         [user.id]
       ),
+      db.query<{ birth_date: string | null }>("select birth_date from public.users where id = $1 limit 1", [user.id]),
     ]);
 
     res.json({
@@ -105,7 +126,7 @@ app.get("/api/overview", async (req, res) => {
         accounts: accountsResult.rows,
         values: valuesResult.rows,
         settings: settingsResult.rows[0] ?? null,
-        birth_date: null,
+        birth_date: formatDateOnly(userResult.rows[0]?.birth_date ?? null),
       },
     });
   } catch (error: any) {
@@ -165,8 +186,8 @@ app.get("/api/entry", async (req, res) => {
 
     const [groupsResult, accountsResult, valuesResult, settingsResult] = await Promise.all([
       db.query("select id, name, position from public.entry_groups where user_id = $1 order by position asc", [user.id]),
-      db.query("select id, group_id, name, coin_symbol, position from public.entry_accounts where user_id = $1 order by position asc", [user.id]),
-      db.query("select account_id, year, value from public.entry_account_values where user_id = $1 order by year asc", [user.id]),
+      db.query("select id, group_id, name, coin_symbol, is_debt, position from public.entry_accounts where user_id = $1 order by position asc", [user.id]),
+      db.query("select account_id, year, value, conversion_rate from public.entry_account_values where user_id = $1 order by year asc", [user.id]),
       db.query("select start_year, end_year from public.entry_settings where user_id = $1 limit 1", [user.id]),
     ]);
 
@@ -223,26 +244,33 @@ app.put("/api/entry", async (req, res) => {
         const accountId = String(account.id ?? "");
         const accountName = String(account.name ?? "");
         const coinSymbol = typeof account.coin_symbol === "string" ? account.coin_symbol : null;
+        const isDebt = Boolean(account.is_debt);
         const accountPosition = Number(account.position ?? 0);
         const values = (account.values ?? {}) as Record<string, unknown>;
+        const conversions = (account.conversions ?? {}) as Record<string, unknown>;
 
         if (!accountId) continue;
 
         await client.query(
           `insert into public.entry_accounts
-            (id, user_id, group_id, name, coin_symbol, position)
-           values ($1, $2, $3, $4, $5, $6)`,
-          [accountId, user.id, groupId, accountName, coinSymbol, accountPosition]
+            (id, user_id, group_id, name, coin_symbol, is_debt, position)
+           values ($1, $2, $3, $4, $5, $6, $7)`,
+          [accountId, user.id, groupId, accountName, coinSymbol, isDebt, accountPosition]
         );
 
-        for (const [rawYear, rawValue] of Object.entries(values)) {
-          const year = Number(rawYear);
-          const value = String(rawValue ?? "").trim();
-          if (!Number.isFinite(year) || !value) continue;
+        const years = new Set([
+          ...Object.keys(values).map(Number),
+          ...Object.keys(conversions).map(Number),
+        ]);
+
+        for (const year of years) {
+          const value = String(values[year] ?? "").trim();
+          const conversionRate = String(conversions[year] ?? "").trim() || null;
+          if (!Number.isFinite(year) || (!value && !conversionRate)) continue;
 
           await client.query(
-            "insert into public.entry_account_values (user_id, account_id, year, value) values ($1, $2, $3, $4)",
-            [user.id, accountId, year, value]
+            "insert into public.entry_account_values (user_id, account_id, year, value, conversion_rate) values ($1, $2, $3, $4, $5)",
+            [user.id, accountId, year, value, conversionRate]
           );
         }
       }

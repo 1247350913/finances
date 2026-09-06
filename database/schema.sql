@@ -24,6 +24,7 @@ create table if not exists public.users (
   reset_otp_hash text,
   reset_otp_expires_at timestamptz,
   auth_version integer not null default 0,
+  birth_date date,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -71,6 +72,7 @@ create table if not exists public.entry_accounts (
   group_id uuid not null references public.entry_groups(id) on delete cascade,
   name text not null,
   coin_symbol text,
+  is_debt boolean not null default false,
   position integer not null default 0,
   created_at timestamptz default now()
 );
@@ -81,6 +83,7 @@ create table if not exists public.entry_account_values (
   account_id uuid not null references public.entry_accounts(id) on delete cascade,
   year integer not null,
   value text not null,
+  conversion_rate text,
   created_at timestamptz default now(),
   unique (account_id, year)
 );

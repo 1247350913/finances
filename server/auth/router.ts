@@ -9,6 +9,23 @@ import { sendPasswordResetEmail, sendVerifyEmail } from "./email";
 
 const OTP_TTL_MS = 1000 * 60 * 30;
 
+// pg returns `date` columns as JS Date objects, whose JSON serialization shifts by local
+// timezone (e.g. "1999-12-28" -> "1999-12-28T05:00:00.000Z"); normalize back to plain YYYY-MM-DD.
+export function formatDateOnly(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof value === "string") {
+    const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+    return match ? match[0] : value;
+  }
+  return null;
+}
+
 type DbUser = {
   id: string;
   email: string;
@@ -20,6 +37,7 @@ type DbUser = {
   reset_otp_hash: string | null;
   reset_otp_expires_at: string | null;
   auth_version: number;
+  birth_date: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -53,6 +71,7 @@ function toSessionPayload(user: DbUser) {
     email: user.email,
     username: user.username,
     emailVerified: user.email_verified,
+    birthDate: formatDateOnly(user.birth_date),
     createdAt: user.created_at,
     updatedAt: user.updated_at,
   };
@@ -315,10 +334,21 @@ authRouter.patch("/profile", authGuard, async (req: AuthRequest, res) => {
   try {
     const user = req.authUser as DbUser;
     const username = bodyString(req, "username");
+    const birthDateRaw = bodyString(req, "birth_date");
 
     if (username && username.length < 3) {
       res.status(400).json({ ok: false, error: "Username must be at least 3 chars" });
       return;
+    }
+
+    let birthDate: string | null = null;
+    if (birthDateRaw) {
+      const parsed = new Date(birthDateRaw);
+      if (Number.isNaN(parsed.getTime()) || !/^\d{4}-\d{2}-\d{2}$/.test(birthDateRaw) || parsed > new Date()) {
+        res.status(400).json({ ok: false, error: "Invalid birth date" });
+        return;
+      }
+      birthDate = birthDateRaw;
     }
 
     if (username) {
@@ -333,8 +363,8 @@ authRouter.patch("/profile", authGuard, async (req: AuthRequest, res) => {
     }
 
     const updated = await db.query<DbUser>(
-      "update public.users set username = $1, updated_at = now() where id = $2 returning *",
-      [username || null, user.id]
+      "update public.users set username = $1, birth_date = $2, updated_at = now() where id = $3 returning *",
+      [username || null, birthDate, user.id]
     );
 
     res.json({ ok: true, session: toSessionPayload(updated.rows[0]) });

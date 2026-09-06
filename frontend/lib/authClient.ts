@@ -7,6 +7,7 @@ export type AppAuthSession = {
   email: string;
   username: string | null;
   emailVerified: boolean;
+  birthDate?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };

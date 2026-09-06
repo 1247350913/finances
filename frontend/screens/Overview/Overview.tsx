@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Fragment } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -17,19 +17,22 @@ type EntryAccountRow = {
   id: string;
   group_id: string;
   name: string;
+  coin_symbol?: string | null;
+  is_debt?: boolean | null;
 };
 
 type EntryValueRow = {
   account_id: string;
   year: number;
   value: string;
+  conversion_rate?: string | null;
 };
 
 type OverviewWidgetKey = "chart" | "captions" | "categories";
 
-type OverviewWidgetPreference = {
+type OverviewWidgetInstance = {
+  id: string;
   key: OverviewWidgetKey;
-  enabled: boolean;
 };
 
 type TitleAlign = "left" | "center" | "right";
@@ -37,13 +40,10 @@ type LineStyle = "solid" | "dashed";
 type LegendPosition = "top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-center" | "bottom-right";
 type AxisMode = "year" | "age";
 
-type ChartSettings = {
+type ChartWidgetSettings = {
   titleEnabled: boolean;
   titleText: string;
   titleAlign: TitleAlign;
-  tableTitleEnabled: boolean;
-  tableTitleText: string;
-  tableTitleAlign: TitleAlign;
   goalValue: number | null;
   yAxisUpperBound: number | null;
   goalColor: string;
@@ -56,11 +56,23 @@ type ChartSettings = {
   showXAxisTitle: boolean;
   showXAxisLabels: boolean;
   chartXAxisMode: AxisMode;
-  tableXAxisMode: AxisMode;
   showLegend: boolean;
   legendPosition: LegendPosition;
   showDataPoints: boolean;
   showPointValues: boolean;
+  filterStartYear: string;
+  filterEndYear: string;
+  filterSections: string[];
+};
+
+type TableWidgetSettings = {
+  tableTitleEnabled: boolean;
+  tableTitleText: string;
+  tableTitleAlign: TitleAlign;
+  tableXAxisMode: AxisMode;
+  filterStartYear: string;
+  filterEndYear: string;
+  filterSections: string[];
 };
 
 type SeriesDefinition = {
@@ -70,11 +82,13 @@ type SeriesDefinition = {
   style: LineStyle;
 };
 
-const DEFAULT_WIDGETS: OverviewWidgetPreference[] = [
-  { key: "chart", enabled: true },
-  { key: "captions", enabled: true },
-  { key: "categories", enabled: true },
-];
+type AccountTotalsRow = {
+  id: string;
+  name: string;
+  valuesByYear: Map<number, number>;
+};
+
+const WIDGET_TYPES: OverviewWidgetKey[] = ["chart", "captions", "categories"];
 
 const WIDGET_LABELS: Record<OverviewWidgetKey, string> = {
   chart: "Net Worth Graph",
@@ -86,13 +100,10 @@ const DEFAULT_CAPTION_MD = "Enter your own custom text here";
 const TOTAL_SERIES = "Total";
 const SERIES_PALETTE = ["#c05621", "#2f855a", "#805ad5", "#d69e2e", "#0f766e", "#c53030"];
 
-const DEFAULT_CHART_SETTINGS: ChartSettings = {
+const DEFAULT_CHART_WIDGET_SETTINGS: ChartWidgetSettings = {
   titleEnabled: true,
   titleText: "Net Worth Over Time",
   titleAlign: "left",
-  tableTitleEnabled: true,
-  tableTitleText: "Net Worth By Category Over Years",
-  tableTitleAlign: "left",
   goalValue: null,
   yAxisUpperBound: null,
   goalColor: "#cb2e3e",
@@ -105,12 +116,37 @@ const DEFAULT_CHART_SETTINGS: ChartSettings = {
   showXAxisTitle: true,
   showXAxisLabels: true,
   chartXAxisMode: "year",
-  tableXAxisMode: "year",
   showLegend: true,
   legendPosition: "top-right",
   showDataPoints: false,
   showPointValues: false,
+  filterStartYear: "",
+  filterEndYear: "",
+  filterSections: [TOTAL_SERIES],
 };
+
+const DEFAULT_TABLE_WIDGET_SETTINGS: TableWidgetSettings = {
+  tableTitleEnabled: true,
+  tableTitleText: "Net Worth By Category Over Years",
+  tableTitleAlign: "left",
+  tableXAxisMode: "year",
+  filterStartYear: "",
+  filterEndYear: "",
+  filterSections: [],
+};
+
+function generateWidgetId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `widget-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createDefaultWidgetInstances(): OverviewWidgetInstance[] {
+  return [
+    { id: generateWidgetId(), key: "chart" },
+    { id: generateWidgetId(), key: "captions" },
+    { id: generateWidgetId(), key: "categories" },
+  ];
+}
 
 function parseBirthday(value: unknown) {
   if (typeof value !== "string") return null;
@@ -175,18 +211,26 @@ function buildYearsFromRange(startYear: number | null, endYear: number | null) {
   return Array.from({ length: endYear - startYear + 1 }, (_x, index) => startYear + index);
 }
 
-function isValidPreference(value: unknown): value is OverviewWidgetPreference[] {
+function isWidgetInstanceArray(value: unknown): value is OverviewWidgetInstance[] {
   if (!Array.isArray(value)) return false;
-  const validKeys: OverviewWidgetKey[] = ["chart", "captions", "categories"];
   return value.every((item) => {
     if (!item || typeof item !== "object") return false;
     const record = item as Record<string, unknown>;
-    return validKeys.includes(record.key as OverviewWidgetKey) && typeof record.enabled === "boolean";
+    return typeof record.id === "string" && WIDGET_TYPES.includes(record.key as OverviewWidgetKey);
   });
 }
 
-function coerceChartSettings(value: unknown): ChartSettings {
-  if (!value || typeof value !== "object") return DEFAULT_CHART_SETTINGS;
+function isLegacyWidgetPreferenceArray(value: unknown): value is Array<{ key: OverviewWidgetKey; enabled: boolean }> {
+  if (!Array.isArray(value)) return false;
+  return value.every((item) => {
+    if (!item || typeof item !== "object") return false;
+    const record = item as Record<string, unknown>;
+    return WIDGET_TYPES.includes(record.key as OverviewWidgetKey) && typeof record.enabled === "boolean";
+  });
+}
+
+function coerceChartWidgetSettings(value: unknown): ChartWidgetSettings {
+  if (!value || typeof value !== "object") return DEFAULT_CHART_WIDGET_SETTINGS;
 
   const candidate = value as Record<string, unknown>;
   const goalValue = typeof candidate.goalValue === "number" && Number.isFinite(candidate.goalValue)
@@ -197,30 +241,24 @@ function coerceChartSettings(value: unknown): ChartSettings {
     : null;
 
   return {
-    titleEnabled: typeof candidate.titleEnabled === "boolean" ? candidate.titleEnabled : DEFAULT_CHART_SETTINGS.titleEnabled,
+    titleEnabled: typeof candidate.titleEnabled === "boolean" ? candidate.titleEnabled : DEFAULT_CHART_WIDGET_SETTINGS.titleEnabled,
     titleText: typeof candidate.titleText === "string" && candidate.titleText.length > 0
       ? candidate.titleText
-      : DEFAULT_CHART_SETTINGS.titleText,
+      : DEFAULT_CHART_WIDGET_SETTINGS.titleText,
     titleAlign: candidate.titleAlign === "center" || candidate.titleAlign === "right" ? candidate.titleAlign : "left",
-    tableTitleEnabled: typeof candidate.tableTitleEnabled === "boolean" ? candidate.tableTitleEnabled : DEFAULT_CHART_SETTINGS.tableTitleEnabled,
-    tableTitleText: typeof candidate.tableTitleText === "string" && candidate.tableTitleText.length > 0
-      ? candidate.tableTitleText
-      : DEFAULT_CHART_SETTINGS.tableTitleText,
-    tableTitleAlign: candidate.tableTitleAlign === "center" || candidate.tableTitleAlign === "right" ? candidate.tableTitleAlign : "left",
     goalValue,
     yAxisUpperBound,
-    goalColor: typeof candidate.goalColor === "string" && candidate.goalColor.length > 0 ? candidate.goalColor : DEFAULT_CHART_SETTINGS.goalColor,
+    goalColor: typeof candidate.goalColor === "string" && candidate.goalColor.length > 0 ? candidate.goalColor : DEFAULT_CHART_WIDGET_SETTINGS.goalColor,
     goalStyle: candidate.goalStyle === "solid" ? "solid" : "dashed",
-    lineColor: typeof candidate.lineColor === "string" && candidate.lineColor.length > 0 ? candidate.lineColor : DEFAULT_CHART_SETTINGS.lineColor,
+    lineColor: typeof candidate.lineColor === "string" && candidate.lineColor.length > 0 ? candidate.lineColor : DEFAULT_CHART_WIDGET_SETTINGS.lineColor,
     lineStyle: candidate.lineStyle === "dashed" ? "dashed" : "solid",
-    yAxisStep: typeof candidate.yAxisStep === "number" && candidate.yAxisStep > 0 ? Math.floor(candidate.yAxisStep) : DEFAULT_CHART_SETTINGS.yAxisStep,
-    showYAxisTitle: typeof candidate.showYAxisTitle === "boolean" ? candidate.showYAxisTitle : DEFAULT_CHART_SETTINGS.showYAxisTitle,
-    showYAxisLabels: typeof candidate.showYAxisLabels === "boolean" ? candidate.showYAxisLabels : DEFAULT_CHART_SETTINGS.showYAxisLabels,
-    showXAxisTitle: typeof candidate.showXAxisTitle === "boolean" ? candidate.showXAxisTitle : DEFAULT_CHART_SETTINGS.showXAxisTitle,
-    showXAxisLabels: typeof candidate.showXAxisLabels === "boolean" ? candidate.showXAxisLabels : DEFAULT_CHART_SETTINGS.showXAxisLabels,
+    yAxisStep: typeof candidate.yAxisStep === "number" && candidate.yAxisStep > 0 ? Math.floor(candidate.yAxisStep) : DEFAULT_CHART_WIDGET_SETTINGS.yAxisStep,
+    showYAxisTitle: typeof candidate.showYAxisTitle === "boolean" ? candidate.showYAxisTitle : DEFAULT_CHART_WIDGET_SETTINGS.showYAxisTitle,
+    showYAxisLabels: typeof candidate.showYAxisLabels === "boolean" ? candidate.showYAxisLabels : DEFAULT_CHART_WIDGET_SETTINGS.showYAxisLabels,
+    showXAxisTitle: typeof candidate.showXAxisTitle === "boolean" ? candidate.showXAxisTitle : DEFAULT_CHART_WIDGET_SETTINGS.showXAxisTitle,
+    showXAxisLabels: typeof candidate.showXAxisLabels === "boolean" ? candidate.showXAxisLabels : DEFAULT_CHART_WIDGET_SETTINGS.showXAxisLabels,
     chartXAxisMode: candidate.chartXAxisMode === "age" ? "age" : "year",
-    tableXAxisMode: candidate.tableXAxisMode === "age" ? "age" : "year",
-    showLegend: typeof candidate.showLegend === "boolean" ? candidate.showLegend : DEFAULT_CHART_SETTINGS.showLegend,
+    showLegend: typeof candidate.showLegend === "boolean" ? candidate.showLegend : DEFAULT_CHART_WIDGET_SETTINGS.showLegend,
     legendPosition:
       candidate.legendPosition === "top-left" ||
       candidate.legendPosition === "top-center" ||
@@ -229,16 +267,34 @@ function coerceChartSettings(value: unknown): ChartSettings {
       candidate.legendPosition === "bottom-center" ||
       candidate.legendPosition === "bottom-right"
         ? candidate.legendPosition
-        : DEFAULT_CHART_SETTINGS.legendPosition,
-    showDataPoints: typeof candidate.showDataPoints === "boolean" ? candidate.showDataPoints : DEFAULT_CHART_SETTINGS.showDataPoints,
-    showPointValues: typeof candidate.showPointValues === "boolean" ? candidate.showPointValues : DEFAULT_CHART_SETTINGS.showPointValues,
+        : DEFAULT_CHART_WIDGET_SETTINGS.legendPosition,
+    showDataPoints: typeof candidate.showDataPoints === "boolean" ? candidate.showDataPoints : DEFAULT_CHART_WIDGET_SETTINGS.showDataPoints,
+    showPointValues: typeof candidate.showPointValues === "boolean" ? candidate.showPointValues : DEFAULT_CHART_WIDGET_SETTINGS.showPointValues,
+    filterStartYear: typeof candidate.filterStartYear === "string" ? candidate.filterStartYear : "",
+    filterEndYear: typeof candidate.filterEndYear === "string" ? candidate.filterEndYear : "",
+    filterSections: Array.isArray(candidate.filterSections) && candidate.filterSections.every((entry) => typeof entry === "string")
+      ? (candidate.filterSections as string[])
+      : DEFAULT_CHART_WIDGET_SETTINGS.filterSections,
   };
 }
 
-function normalizeWidgetPreferences(preferences: OverviewWidgetPreference[]) {
-  const active = preferences.filter((item) => item.enabled);
-  const inactive = preferences.filter((item) => !item.enabled);
-  return [...active, ...inactive];
+function coerceTableWidgetSettings(value: unknown): TableWidgetSettings {
+  if (!value || typeof value !== "object") return DEFAULT_TABLE_WIDGET_SETTINGS;
+
+  const candidate = value as Record<string, unknown>;
+  return {
+    tableTitleEnabled: typeof candidate.tableTitleEnabled === "boolean" ? candidate.tableTitleEnabled : DEFAULT_TABLE_WIDGET_SETTINGS.tableTitleEnabled,
+    tableTitleText: typeof candidate.tableTitleText === "string" && candidate.tableTitleText.length > 0
+      ? candidate.tableTitleText
+      : DEFAULT_TABLE_WIDGET_SETTINGS.tableTitleText,
+    tableTitleAlign: candidate.tableTitleAlign === "center" || candidate.tableTitleAlign === "right" ? candidate.tableTitleAlign : "left",
+    tableXAxisMode: candidate.tableXAxisMode === "age" ? "age" : "year",
+    filterStartYear: typeof candidate.filterStartYear === "string" ? candidate.filterStartYear : "",
+    filterEndYear: typeof candidate.filterEndYear === "string" ? candidate.filterEndYear : "",
+    filterSections: Array.isArray(candidate.filterSections) && candidate.filterSections.every((entry) => typeof entry === "string")
+      ? (candidate.filterSections as string[])
+      : DEFAULT_TABLE_WIDGET_SETTINGS.filterSections,
+  };
 }
 
 function buildSectionSummary(selected: string[]) {
@@ -258,28 +314,31 @@ export function Overview() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
-  const [draggedWidgetKey, setDraggedWidgetKey] = useState<OverviewWidgetKey | null>(null);
-  const [markdownTab, setMarkdownTab] = useState<"edit" | "preview">("edit");
+  const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
+  const [markdownTabById, setMarkdownTabById] = useState<Record<string, "edit" | "preview">>({});
+  const [expandedTableSectionsById, setExpandedTableSectionsById] = useState<Record<string, Set<string>>>({});
 
-  const [savedWidgetPreferences, setSavedWidgetPreferences] = useState<OverviewWidgetPreference[]>(DEFAULT_WIDGETS);
-  const [draftWidgetPreferences, setDraftWidgetPreferences] = useState<OverviewWidgetPreference[]>(DEFAULT_WIDGETS);
-  const [savedCaptionMd, setSavedCaptionMd] = useState(DEFAULT_CAPTION_MD);
-  const [draftCaptionMd, setDraftCaptionMd] = useState(DEFAULT_CAPTION_MD);
-  const [savedChartSettings, setSavedChartSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
-  const [draftChartSettings, setDraftChartSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
+  const [defaultWidgetInstances] = useState<OverviewWidgetInstance[]>(createDefaultWidgetInstances);
+  const defaultChartId = defaultWidgetInstances.find((item) => item.key === "chart")!.id;
+  const defaultCaptionId = defaultWidgetInstances.find((item) => item.key === "captions")!.id;
+  const defaultTableId = defaultWidgetInstances.find((item) => item.key === "categories")!.id;
+
+  const [savedWidgetInstances, setSavedWidgetInstances] = useState<OverviewWidgetInstance[]>(defaultWidgetInstances);
+  const [draftWidgetInstances, setDraftWidgetInstances] = useState<OverviewWidgetInstance[]>(defaultWidgetInstances);
+
+  const [savedCaptionsById, setSavedCaptionsById] = useState<Record<string, string>>(() => ({ [defaultCaptionId]: DEFAULT_CAPTION_MD }));
+  const [draftCaptionsById, setDraftCaptionsById] = useState<Record<string, string>>(() => ({ [defaultCaptionId]: DEFAULT_CAPTION_MD }));
+  const [savedChartSettingsById, setSavedChartSettingsById] = useState<Record<string, ChartWidgetSettings>>(() => ({ [defaultChartId]: DEFAULT_CHART_WIDGET_SETTINGS }));
+  const [draftChartSettingsById, setDraftChartSettingsById] = useState<Record<string, ChartWidgetSettings>>(() => ({ [defaultChartId]: DEFAULT_CHART_WIDGET_SETTINGS }));
+  const [savedTableSettingsById, setSavedTableSettingsById] = useState<Record<string, TableWidgetSettings>>(() => ({ [defaultTableId]: DEFAULT_TABLE_WIDGET_SETTINGS }));
+  const [draftTableSettingsById, setDraftTableSettingsById] = useState<Record<string, TableWidgetSettings>>(() => ({ [defaultTableId]: DEFAULT_TABLE_WIDGET_SETTINGS }));
 
   const [years, setYears] = useState<number[]>([]);
   const [birthday, setBirthday] = useState<Date | null>(null);
   const [sectionNames, setSectionNames] = useState<string[]>([]);
   const [netWorthByYear, setNetWorthByYear] = useState<Map<number, number>>(new Map());
   const [groupTotalsByYear, setGroupTotalsByYear] = useState<Map<string, Map<number, number>>>(new Map());
-
-  const [chartFilterStartYear, setChartFilterStartYear] = useState<string>("");
-  const [chartFilterEndYear, setChartFilterEndYear] = useState<string>("");
-  const [chartFilterSections, setChartFilterSections] = useState<string[]>([TOTAL_SERIES]);
-  const [tableFilterStartYear, setTableFilterStartYear] = useState<string>("");
-  const [tableFilterEndYear, setTableFilterEndYear] = useState<string>("");
-  const [tableFilterSections, setTableFilterSections] = useState<string[]>([TOTAL_SERIES]);
+  const [accountRowsByGroup, setAccountRowsByGroup] = useState<Map<string, AccountTotalsRow[]>>(new Map());
 
   useEffect(() => {
     void loadOverview();
@@ -327,8 +386,8 @@ export function Overview() {
 
         const [{ data: groupsData, error: groupsError }, { data: accountsData, error: accountsError }, { data: valuesData, error: valuesError }, { data: settingsData, error: settingsError }] = await Promise.all([
           supabase.from("entry_groups").select("id,name").eq("user_id", userId).order("position", { ascending: true }),
-          supabase.from("entry_accounts").select("id,group_id,name").eq("user_id", userId).order("position", { ascending: true }),
-          supabase.from("entry_account_values").select("account_id,year,value").eq("user_id", userId).order("year", { ascending: true }),
+          supabase.from("entry_accounts").select("id,group_id,name,coin_symbol,is_debt").eq("user_id", userId).order("position", { ascending: true }),
+          supabase.from("entry_account_values").select("account_id,year,value,conversion_rate").eq("user_id", userId).order("year", { ascending: true }),
           supabase.from("entry_settings").select("*").eq("user_id", userId).limit(1),
         ]);
 
@@ -353,8 +412,12 @@ export function Overview() {
       setYears(nextYears);
 
       const accountToGroup = new Map<string, string>();
+      const accountCoinMap = new Map<string, string | null>();
+      const accountDebtMap = new Map<string, boolean>();
       for (const account of accounts) {
         accountToGroup.set(account.id, account.group_id);
+        accountCoinMap.set(account.id, account.coin_symbol ?? null);
+        accountDebtMap.set(account.id, Boolean(account.is_debt));
       }
 
       const groupNameById = new Map<string, string>();
@@ -362,17 +425,26 @@ export function Overview() {
         groupNameById.set(group.id, group.name);
       }
 
+      const accountNameById = new Map<string, string>();
+      for (const account of accounts) {
+        accountNameById.set(account.id, account.name);
+      }
+
       const nextNetWorthByYear = new Map<number, number>();
       const nextGroupTotalsByYear = new Map<string, Map<number, number>>();
-
-      for (const year of nextYears) {
-        nextNetWorthByYear.set(year, 0);
-      }
+      const nextAccountTotalsByGroup = new Map<string, Map<string, AccountTotalsRow>>();
 
       for (const valueRow of values) {
         if (!nextYears.includes(valueRow.year)) continue;
 
-        const amount = parseNumericValue(valueRow.value);
+        const rawAmount = parseNumericValue(valueRow.value);
+        const coinSymbol = accountCoinMap.get(valueRow.account_id);
+        const conversionRate = parseNumericValue(valueRow.conversion_rate ?? "");
+        const convertedAmount = (coinSymbol && conversionRate > 0)
+          ? rawAmount * conversionRate
+          : rawAmount;
+        const amount = accountDebtMap.get(valueRow.account_id) ? -convertedAmount : convertedAmount;
+
         nextNetWorthByYear.set(valueRow.year, (nextNetWorthByYear.get(valueRow.year) ?? 0) + amount);
 
         const groupId = accountToGroup.get(valueRow.account_id);
@@ -382,39 +454,94 @@ export function Overview() {
         const groupYearMap = nextGroupTotalsByYear.get(groupName) ?? new Map<number, number>();
         groupYearMap.set(valueRow.year, (groupYearMap.get(valueRow.year) ?? 0) + amount);
         nextGroupTotalsByYear.set(groupName, groupYearMap);
+
+        const groupAccounts = nextAccountTotalsByGroup.get(groupName) ?? new Map<string, AccountTotalsRow>();
+        const accountRow = groupAccounts.get(valueRow.account_id) ?? {
+          id: valueRow.account_id,
+          name: accountNameById.get(valueRow.account_id) ?? "Unnamed account",
+          valuesByYear: new Map<number, number>(),
+        };
+        accountRow.valuesByYear.set(valueRow.year, (accountRow.valuesByYear.get(valueRow.year) ?? 0) + amount);
+        groupAccounts.set(valueRow.account_id, accountRow);
+        nextAccountTotalsByGroup.set(groupName, groupAccounts);
       }
 
       setNetWorthByYear(nextNetWorthByYear);
       setGroupTotalsByYear(nextGroupTotalsByYear);
+      setAccountRowsByGroup(new Map(
+        [...nextAccountTotalsByGroup.entries()].map(([groupName, accountsMap]) => [
+          groupName,
+          [...accountsMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        ])
+      ));
       const sortedSectionNames = [...new Set([
         ...groups.map((group) => group.name),
         ...nextGroupTotalsByYear.keys(),
-      ])].sort((a, b) => a.localeCompare(b));
+      ])];
       setSectionNames(sortedSectionNames);
-      setTableFilterSections(sortedSectionNames);
 
       const persistedWidgets = settingsRow?.overview_widgets;
-      const nextWidgetPreferences = isValidPreference(persistedWidgets)
-        ? normalizeWidgetPreferences([...persistedWidgets])
-        : DEFAULT_WIDGETS;
-      for (const fallback of DEFAULT_WIDGETS) {
-        if (!nextWidgetPreferences.some((item) => item.key === fallback.key)) {
-          nextWidgetPreferences.push(fallback);
+      const rawChartSettingsBlob = settingsRow?.overview_chart_settings;
+      const chartBlob = (rawChartSettingsBlob && typeof rawChartSettingsBlob === "object" ? (rawChartSettingsBlob as Record<string, unknown>).chart : undefined) as Record<string, unknown> | undefined;
+      const tableBlob = (rawChartSettingsBlob && typeof rawChartSettingsBlob === "object" ? (rawChartSettingsBlob as Record<string, unknown>).table : undefined) as Record<string, unknown> | undefined;
+      const isNestedSettingsBlob = Boolean(chartBlob || tableBlob);
+
+      let nextInstances: OverviewWidgetInstance[];
+      let nextChartSettingsById: Record<string, ChartWidgetSettings> = {};
+      let nextTableSettingsById: Record<string, TableWidgetSettings> = {};
+      let nextCaptionsById: Record<string, string> = {};
+
+      if (isWidgetInstanceArray(persistedWidgets) && persistedWidgets.length > 0) {
+        nextInstances = persistedWidgets;
+
+        let parsedCaptions: Record<string, unknown> = {};
+        if (typeof settingsRow?.overview_caption_md === "string" && settingsRow.overview_caption_md.length > 0) {
+          try {
+            const parsed = JSON.parse(settingsRow.overview_caption_md);
+            if (parsed && typeof parsed === "object") parsedCaptions = parsed as Record<string, unknown>;
+          } catch {
+            // malformed captions blob, defaults applied below
+          }
         }
+
+        for (const instance of nextInstances) {
+          if (instance.key === "chart") nextChartSettingsById[instance.id] = coerceChartWidgetSettings(chartBlob?.[instance.id]);
+          if (instance.key === "categories") nextTableSettingsById[instance.id] = coerceTableWidgetSettings(tableBlob?.[instance.id]);
+          if (instance.key === "captions") {
+            const raw = parsedCaptions[instance.id];
+            nextCaptionsById[instance.id] = typeof raw === "string" ? raw : DEFAULT_CAPTION_MD;
+          }
+        }
+      } else if (isLegacyWidgetPreferenceArray(persistedWidgets)) {
+        nextInstances = persistedWidgets.filter((item) => item.enabled).map((item) => ({ id: generateWidgetId(), key: item.key }));
+        if (nextInstances.length === 0) nextInstances = createDefaultWidgetInstances();
+
+        const legacySettings = isNestedSettingsBlob ? undefined : rawChartSettingsBlob;
+        const legacyCaption =
+          typeof settingsRow?.overview_caption_md === "string" && settingsRow.overview_caption_md.length > 0
+            ? settingsRow.overview_caption_md
+            : DEFAULT_CAPTION_MD;
+
+        for (const instance of nextInstances) {
+          if (instance.key === "chart") nextChartSettingsById[instance.id] = coerceChartWidgetSettings(legacySettings);
+          if (instance.key === "categories") nextTableSettingsById[instance.id] = coerceTableWidgetSettings(legacySettings);
+          if (instance.key === "captions") nextCaptionsById[instance.id] = legacyCaption;
+        }
+      } else {
+        nextInstances = defaultWidgetInstances;
+        nextChartSettingsById = { [defaultChartId]: DEFAULT_CHART_WIDGET_SETTINGS };
+        nextTableSettingsById = { [defaultTableId]: DEFAULT_TABLE_WIDGET_SETTINGS };
+        nextCaptionsById = { [defaultCaptionId]: DEFAULT_CAPTION_MD };
       }
 
-      const nextCaption =
-        typeof settingsRow?.overview_caption_md === "string" && settingsRow.overview_caption_md.length > 0
-          ? settingsRow.overview_caption_md
-          : DEFAULT_CAPTION_MD;
-      const nextChartSettings = coerceChartSettings(settingsRow?.overview_chart_settings);
-
-      setSavedWidgetPreferences(nextWidgetPreferences);
-      setDraftWidgetPreferences(nextWidgetPreferences);
-      setSavedCaptionMd(nextCaption);
-      setDraftCaptionMd(nextCaption);
-      setSavedChartSettings(nextChartSettings);
-      setDraftChartSettings(nextChartSettings);
+      setSavedWidgetInstances(nextInstances);
+      setDraftWidgetInstances(nextInstances);
+      setSavedChartSettingsById(nextChartSettingsById);
+      setDraftChartSettingsById(nextChartSettingsById);
+      setSavedTableSettingsById(nextTableSettingsById);
+      setDraftTableSettingsById(nextTableSettingsById);
+      setSavedCaptionsById(nextCaptionsById);
+      setDraftCaptionsById(nextCaptionsById);
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load overview.");
@@ -423,25 +550,31 @@ export function Overview() {
     }
   }
 
-  const activeWidgetPreferences = isCustomizeOpen ? draftWidgetPreferences : savedWidgetPreferences;
-  const activeCaptionMd = isCustomizeOpen ? draftCaptionMd : savedCaptionMd;
-  const activeChartSettings = isCustomizeOpen ? draftChartSettings : savedChartSettings;
+  const activeWidgetInstances = isCustomizeOpen ? draftWidgetInstances : savedWidgetInstances;
   const ageModeAvailable = birthday !== null;
-  const effectiveChartAxisMode: AxisMode = activeChartSettings.chartXAxisMode === "age" && ageModeAvailable ? "age" : "year";
-  const effectiveTableAxisMode: AxisMode = activeChartSettings.tableXAxisMode === "age" && ageModeAvailable ? "age" : "year";
 
   const hasUnsavedChanges = useMemo(() => {
-    const widgetsChanged = JSON.stringify(savedWidgetPreferences) !== JSON.stringify(draftWidgetPreferences);
-    const captionChanged = savedCaptionMd !== draftCaptionMd;
-    const chartChanged = JSON.stringify(savedChartSettings) !== JSON.stringify(draftChartSettings);
-    return widgetsChanged || captionChanged || chartChanged;
-  }, [draftCaptionMd, draftChartSettings, draftWidgetPreferences, savedCaptionMd, savedChartSettings, savedWidgetPreferences]);
+    const instancesChanged = JSON.stringify(savedWidgetInstances) !== JSON.stringify(draftWidgetInstances);
+    const chartChanged = JSON.stringify(savedChartSettingsById) !== JSON.stringify(draftChartSettingsById);
+    const tableChanged = JSON.stringify(savedTableSettingsById) !== JSON.stringify(draftTableSettingsById);
+    const captionsChanged = JSON.stringify(savedCaptionsById) !== JSON.stringify(draftCaptionsById);
+    return instancesChanged || chartChanged || tableChanged || captionsChanged;
+  }, [
+    savedWidgetInstances,
+    draftWidgetInstances,
+    savedChartSettingsById,
+    draftChartSettingsById,
+    savedTableSettingsById,
+    draftTableSettingsById,
+    savedCaptionsById,
+    draftCaptionsById,
+  ]);
 
   function openEdit() {
-    setDraftWidgetPreferences(normalizeWidgetPreferences(savedWidgetPreferences));
-    setDraftCaptionMd(savedCaptionMd);
-    setDraftChartSettings(savedChartSettings);
-    setMarkdownTab("edit");
+    setDraftWidgetInstances(savedWidgetInstances);
+    setDraftChartSettingsById(savedChartSettingsById);
+    setDraftTableSettingsById(savedTableSettingsById);
+    setDraftCaptionsById(savedCaptionsById);
     setIsCustomizeOpen(true);
     setStatusMessage(null);
   }
@@ -451,9 +584,10 @@ export function Overview() {
       const shouldDiscard = window.confirm("Your changes will be discarded");
       if (!shouldDiscard) return;
     }
-    setDraftWidgetPreferences(normalizeWidgetPreferences(savedWidgetPreferences));
-    setDraftCaptionMd(savedCaptionMd);
-    setDraftChartSettings(savedChartSettings);
+    setDraftWidgetInstances(savedWidgetInstances);
+    setDraftChartSettingsById(savedChartSettingsById);
+    setDraftTableSettingsById(savedTableSettingsById);
+    setDraftCaptionsById(savedCaptionsById);
     setIsCustomizeOpen(false);
     setStatusMessage(null);
   }
@@ -465,15 +599,29 @@ export function Overview() {
       setErrorMessage(null);
       setStatusMessage(null);
 
+      const chartSettingsBlob = {
+        chart: Object.fromEntries(
+          draftWidgetInstances.filter((item) => item.key === "chart").map((item) => [item.id, draftChartSettingsById[item.id] ?? DEFAULT_CHART_WIDGET_SETTINGS])
+        ),
+        table: Object.fromEntries(
+          draftWidgetInstances.filter((item) => item.key === "categories").map((item) => [item.id, draftTableSettingsById[item.id] ?? DEFAULT_TABLE_WIDGET_SETTINGS])
+        ),
+      };
+      const captionsBlob = JSON.stringify(
+        Object.fromEntries(
+          draftWidgetInstances.filter((item) => item.key === "captions").map((item) => [item.id, draftCaptionsById[item.id] ?? DEFAULT_CAPTION_MD])
+        )
+      );
+
       if (authClient.mode === "custom") {
         const response = await fetch(apiUrl("/api/overview/layout"), {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            overview_widgets: normalizeWidgetPreferences(draftWidgetPreferences),
-            overview_caption_md: draftCaptionMd,
-            overview_chart_settings: draftChartSettings,
+            overview_widgets: draftWidgetInstances,
+            overview_caption_md: captionsBlob,
+            overview_chart_settings: chartSettingsBlob,
           }),
         });
 
@@ -493,9 +641,9 @@ export function Overview() {
         const { error } = await supabase.from("entry_settings").upsert(
           {
             user_id: userData.user.id,
-            overview_widgets: normalizeWidgetPreferences(draftWidgetPreferences),
-            overview_caption_md: draftCaptionMd,
-            overview_chart_settings: draftChartSettings,
+            overview_widgets: draftWidgetInstances,
+            overview_caption_md: captionsBlob,
+            overview_chart_settings: chartSettingsBlob,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "user_id" }
@@ -504,9 +652,10 @@ export function Overview() {
         if (error) throw error;
       }
 
-      setSavedWidgetPreferences(normalizeWidgetPreferences(draftWidgetPreferences));
-      setSavedCaptionMd(draftCaptionMd);
-      setSavedChartSettings(draftChartSettings);
+      setSavedWidgetInstances(draftWidgetInstances);
+      setSavedChartSettingsById(draftChartSettingsById);
+      setSavedTableSettingsById(draftTableSettingsById);
+      setSavedCaptionsById(draftCaptionsById);
       setSaveJustCompleted(true);
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
       setIsCustomizeOpen(false);
@@ -520,31 +669,41 @@ export function Overview() {
     }
   }
 
-  function reorderActiveWidgets(sourceKey: OverviewWidgetKey, targetKey: OverviewWidgetKey) {
-    setDraftWidgetPreferences((prev) => {
-      const activeKeys = prev.filter((item) => item.enabled).map((item) => item.key);
-      const fromIndex = activeKeys.findIndex((key) => key === sourceKey);
-      const toIndex = activeKeys.findIndex((key) => key === targetKey);
+  function addWidgetInstance(key: OverviewWidgetKey) {
+    const id = generateWidgetId();
+    setDraftWidgetInstances((prev) => [...prev, { id, key }]);
+    if (key === "chart") setDraftChartSettingsById((prev) => ({ ...prev, [id]: DEFAULT_CHART_WIDGET_SETTINGS }));
+    if (key === "categories") setDraftTableSettingsById((prev) => ({ ...prev, [id]: DEFAULT_TABLE_WIDGET_SETTINGS }));
+    if (key === "captions") setDraftCaptionsById((prev) => ({ ...prev, [id]: DEFAULT_CAPTION_MD }));
+  }
+
+  function removeWidgetInstance(id: string) {
+    setDraftWidgetInstances((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function reorderActiveWidgets(sourceId: string, targetId: string) {
+    setDraftWidgetInstances((prev) => {
+      const fromIndex = prev.findIndex((item) => item.id === sourceId);
+      const toIndex = prev.findIndex((item) => item.id === targetId);
       if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
 
-      const nextActiveKeys = [...activeKeys];
-      const [moved] = nextActiveKeys.splice(fromIndex, 1);
-      nextActiveKeys.splice(toIndex, 0, moved);
-
-      const activeMap = new Map(prev.filter((item) => item.enabled).map((item) => [item.key, item]));
-      const inactiveItems = prev.filter((item) => !item.enabled);
-      const reorderedActive = nextActiveKeys
-        .map((key) => activeMap.get(key))
-        .filter((item): item is OverviewWidgetPreference => Boolean(item));
-      return [...reorderedActive, ...inactiveItems];
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
     });
   }
 
-  function setWidgetEnabled(key: OverviewWidgetKey, enabled: boolean) {
-    setDraftWidgetPreferences((prev) => {
-      const next = prev.map((item) => (item.key === key ? { ...item, enabled } : item));
-      return normalizeWidgetPreferences(next);
-    });
+  function updateChartSettings(id: string, patch: Partial<ChartWidgetSettings>) {
+    setDraftChartSettingsById((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_CHART_WIDGET_SETTINGS), ...patch } }));
+  }
+
+  function updateTableSettings(id: string, patch: Partial<TableWidgetSettings>) {
+    setDraftTableSettingsById((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_TABLE_WIDGET_SETTINGS), ...patch } }));
+  }
+
+  function updateCaption(id: string, value: string) {
+    setDraftCaptionsById((prev) => ({ ...prev, [id]: value }));
   }
 
   function toggleMultiSelect(value: string, selected: string[], setSelected: (next: string[]) => void) {
@@ -563,70 +722,80 @@ export function Overview() {
     setSelected([...selected.filter((item) => item !== TOTAL_SERIES), value]);
   }
 
-  const chartFilteredYears = useMemo(
-    () => years.filter((year) => {
-      if (chartFilterStartYear && year < Number(chartFilterStartYear)) return false;
-      if (chartFilterEndYear && year > Number(chartFilterEndYear)) return false;
+  function computeFilteredYears(filterStartYear: string, filterEndYear: string) {
+    return years.filter((year) => {
+      if (filterStartYear && year < Number(filterStartYear)) return false;
+      if (filterEndYear && year > Number(filterEndYear)) return false;
       return true;
-    }),
-    [chartFilterEndYear, chartFilterStartYear, years]
-  );
+    });
+  }
 
-  const chartSeriesDefinitions = useMemo<SeriesDefinition[]>(() => {
-    const selected = chartFilterSections.length > 0 ? chartFilterSections : [TOTAL_SERIES];
+  function computeChartSeriesDefinitions(settings: ChartWidgetSettings, filteredYears: number[]): SeriesDefinition[] {
+    const selected = settings.filterSections.length > 0 ? settings.filterSections : [TOTAL_SERIES];
     return selected.map((name, index) => {
-      const values = chartFilteredYears.map((year) => {
+      const values = filteredYears.map((year) => {
         if (name === TOTAL_SERIES) return netWorthByYear.get(year) ?? null;
         return groupTotalsByYear.get(name)?.get(year) ?? null;
       });
       return {
         name,
         values,
-        color: name === TOTAL_SERIES ? activeChartSettings.lineColor : SERIES_PALETTE[index % SERIES_PALETTE.length],
-        style: name === TOTAL_SERIES ? activeChartSettings.lineStyle : "solid",
+        color: name === TOTAL_SERIES ? settings.lineColor : SERIES_PALETTE[index % SERIES_PALETTE.length],
+        style: name === TOTAL_SERIES ? settings.lineStyle : "solid",
       };
     });
-  }, [activeChartSettings.lineColor, activeChartSettings.lineStyle, chartFilterSections, chartFilteredYears, groupTotalsByYear, netWorthByYear]);
+  }
 
-  const tableFilteredYears = useMemo(
-    () => years.filter((year) => {
-      if (tableFilterStartYear && year < Number(tableFilterStartYear)) return false;
-      if (tableFilterEndYear && year > Number(tableFilterEndYear)) return false;
-      return true;
-    }),
-    [tableFilterEndYear, tableFilterStartYear, years]
-  );
-
-  const tableRows = useMemo(() => {
-    const selected = tableFilterSections.length > 0 ? tableFilterSections : sectionNames;
-    return selected.map((name) => ({
+  function computeTableRows(settings: TableWidgetSettings, filteredYears: number[]) {
+    const selectedSet = new Set(settings.filterSections.length > 0 ? settings.filterSections : sectionNames);
+    const orderedNames = [
+      ...(selectedSet.has(TOTAL_SERIES) ? [TOTAL_SERIES] : []),
+      ...sectionNames.filter((name) => selectedSet.has(name)),
+    ];
+    return orderedNames.map((name) => ({
       label: name === TOTAL_SERIES ? "Total Net Worth" : name,
-      values: tableFilteredYears.map((year) => {
-        if (name === TOTAL_SERIES) return netWorthByYear.get(year) ?? 0;
-        return groupTotalsByYear.get(name)?.get(year) ?? 0;
+      values: filteredYears.map((year) => {
+        const rawValue = name === TOTAL_SERIES
+          ? netWorthByYear.get(year) ?? 0
+          : groupTotalsByYear.get(name)?.get(year) ?? 0;
+        return name === TOTAL_SERIES ? rawValue : Math.round(rawValue / 1000) * 1000;
       }),
+      accounts: name === TOTAL_SERIES ? [] : (accountRowsByGroup.get(name) ?? []).map((account) => ({
+        id: account.id,
+        label: account.name,
+        values: filteredYears.map((year) => account.valuesByYear.get(year) ?? 0),
+      })),
     }));
-  }, [groupTotalsByYear, netWorthByYear, sectionNames, tableFilterSections, tableFilteredYears]);
+  }
 
-  const chartGeometry = useMemo(() => {
+  function toggleTableSection(instanceId: string, name: string) {
+    setExpandedTableSectionsById((prev) => {
+      const next = new Set(prev[instanceId] ?? []);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return { ...prev, [instanceId]: next };
+    });
+  }
+
+  function computeChartGeometry(settings: ChartWidgetSettings, seriesDefinitions: SeriesDefinition[], filteredYearsCount: number) {
     const width = 920;
     const height = 320;
     const left = 78;
     const right = 24;
     const top = 22;
-    const bottom = activeChartSettings.showXAxisTitle ? 70 : activeChartSettings.showXAxisLabels ? 52 : 26;
+    const bottom = settings.showXAxisTitle ? 70 : settings.showXAxisLabels ? 52 : 26;
     const usableWidth = width - left - right;
     const usableHeight = height - top - bottom;
 
-    const sourceValues = chartSeriesDefinitions.flatMap((series) => series.values.filter((value): value is number => value !== null));
-    if (activeChartSettings.goalValue !== null) sourceValues.push(activeChartSettings.goalValue);
+    const sourceValues = seriesDefinitions.flatMap((series) => series.values.filter((value): value is number => value !== null));
+    if (settings.goalValue !== null) sourceValues.push(settings.goalValue);
     if (sourceValues.length === 0) sourceValues.push(0);
 
     const minValueRaw = Math.min(0, ...sourceValues);
     const maxValueRaw = Math.max(0, ...sourceValues);
-    const step = Math.max(1, Math.floor(activeChartSettings.yAxisStep));
+    const step = Math.max(1, Math.floor(settings.yAxisStep));
     const minValue = Math.floor(minValueRaw / step) * step;
-    const configuredUpper = activeChartSettings.yAxisUpperBound;
+    const configuredUpper = settings.yAxisUpperBound;
     const autoMax = Math.ceil(maxValueRaw / step) * step;
     const configuredMax = configuredUpper === null ? null : Math.max(configuredUpper, minValue + step);
     const maxValue = configuredMax ?? autoMax;
@@ -634,7 +803,7 @@ export function Overview() {
 
     const valueToY = (value: number) => top + (1 - (value - minValue) / spread) * usableHeight;
     const indexToX = (index: number) =>
-      left + (chartFilteredYears.length <= 1 ? usableWidth / 2 : (index / (chartFilteredYears.length - 1)) * usableWidth);
+      left + (filteredYearsCount <= 1 ? usableWidth / 2 : (index / (filteredYearsCount - 1)) * usableWidth);
 
     const yTicks: number[] = [];
     if (configuredMax !== null) {
@@ -662,23 +831,19 @@ export function Overview() {
       yTicks,
       valueToY,
       indexToX,
-      goalY: activeChartSettings.goalValue === null ? null : valueToY(activeChartSettings.goalValue),
+      goalY: settings.goalValue === null ? null : valueToY(settings.goalValue),
       baselineY: height - bottom,
     };
-  }, [activeChartSettings.goalValue, activeChartSettings.showXAxisLabels, activeChartSettings.showXAxisTitle, activeChartSettings.yAxisStep, activeChartSettings.yAxisUpperBound, chartFilteredYears.length, chartSeriesDefinitions]);
+  }
 
-  const legendPositionClass =
-    activeChartSettings.legendPosition === "top-left"
-      ? styles.legendTopLeft
-      : activeChartSettings.legendPosition === "top-center"
-        ? styles.legendTopCenter
-        : activeChartSettings.legendPosition === "top-right"
-          ? styles.legendTopRight
-          : activeChartSettings.legendPosition === "bottom-left"
-            ? styles.legendBottomLeft
-            : activeChartSettings.legendPosition === "bottom-center"
-              ? styles.legendBottomCenter
-              : styles.legendBottomRight;
+  function getLegendPositionClass(position: LegendPosition) {
+    if (position === "top-left") return styles.legendTopLeft;
+    if (position === "top-center") return styles.legendTopCenter;
+    if (position === "top-right") return styles.legendTopRight;
+    if (position === "bottom-left") return styles.legendBottomLeft;
+    if (position === "bottom-center") return styles.legendBottomCenter;
+    return styles.legendBottomRight;
+  }
 
   function renderSectionSelector(selected: string[], setSelected: (next: string[]) => void, prefix: string) {
     return (
@@ -703,22 +868,34 @@ export function Overview() {
     );
   }
 
-  function trySetAxisMode(mode: AxisMode, target: "chart" | "table") {
+  function trySetChartAxisMode(id: string, mode: AxisMode) {
+    if (mode === "age" && isLoading) return;
     if (mode === "age" && !ageModeAvailable) {
       window.alert("Add your birthday in Profile before using Age mode.");
       return;
     }
-
-    setDraftChartSettings((prev) =>
-      target === "chart"
-        ? { ...prev, chartXAxisMode: mode }
-        : { ...prev, tableXAxisMode: mode }
-    );
+    updateChartSettings(id, { chartXAxisMode: mode });
   }
 
-  function renderChartWidget() {
+  function trySetTableAxisMode(id: string, mode: AxisMode) {
+    if (mode === "age" && isLoading) return;
+    if (mode === "age" && !ageModeAvailable) {
+      window.alert("Add your birthday in Profile before using Age mode.");
+      return;
+    }
+    updateTableSettings(id, { tableXAxisMode: mode });
+  }
+
+  function renderChartWidget(instance: OverviewWidgetInstance) {
+    const settings = isCustomizeOpen ? (draftChartSettingsById[instance.id] ?? DEFAULT_CHART_WIDGET_SETTINGS) : (savedChartSettingsById[instance.id] ?? DEFAULT_CHART_WIDGET_SETTINGS);
+    const filteredYears = computeFilteredYears(settings.filterStartYear, settings.filterEndYear);
+    const seriesDefinitions = computeChartSeriesDefinitions(settings, filteredYears);
+    const geometry = computeChartGeometry(settings, seriesDefinitions, filteredYears.length);
+    const effectiveAxisMode: AxisMode = settings.chartXAxisMode === "age" && ageModeAvailable ? "age" : "year";
+    const legendPositionClass = getLegendPositionClass(settings.legendPosition);
+
     return (
-      <section className={styles.widgetCard} key="chart-widget">
+      <section className={styles.widgetCard} key={instance.id}>
         {isCustomizeOpen && (
           <div className={styles.chartSettingsShell}>
             <section className={styles.settingsGroup}>
@@ -727,8 +904,8 @@ export function Overview() {
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.titleEnabled}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, titleEnabled: event.target.checked }))}
+                    checked={settings.titleEnabled}
+                    onChange={(event) => updateChartSettings(instance.id, { titleEnabled: event.target.checked })}
                   />
                   Show Title
                 </label>
@@ -736,15 +913,15 @@ export function Overview() {
                   Title Text
                   <input
                     type="text"
-                    value={draftChartSettings.titleText}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, titleText: event.target.value }))}
+                    value={settings.titleText}
+                    onChange={(event) => updateChartSettings(instance.id, { titleText: event.target.value })}
                   />
                 </label>
                 <label>
                   Title Align
                   <select
-                    value={draftChartSettings.titleAlign}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, titleAlign: event.target.value as TitleAlign }))}
+                    value={settings.titleAlign}
+                    onChange={(event) => updateChartSettings(instance.id, { titleAlign: event.target.value as TitleAlign })}
                   >
                     <option value="left">Left</option>
                     <option value="center">Center</option>
@@ -760,16 +937,16 @@ export function Overview() {
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.showLegend}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showLegend: event.target.checked }))}
+                    checked={settings.showLegend}
+                    onChange={(event) => updateChartSettings(instance.id, { showLegend: event.target.checked })}
                   />
                   Show Legend
                 </label>
                 <label>
                   Legend Position
                   <select
-                    value={draftChartSettings.legendPosition}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, legendPosition: event.target.value as LegendPosition }))}
+                    value={settings.legendPosition}
+                    onChange={(event) => updateChartSettings(instance.id, { legendPosition: event.target.value as LegendPosition })}
                   >
                     <option value="top-left">Top Left</option>
                     <option value="top-center">Top Center</option>
@@ -787,29 +964,29 @@ export function Overview() {
               <div className={styles.settingsGrid}>
                 <label>
                   Time From
-                  <select value={chartFilterStartYear} onChange={(event) => setChartFilterStartYear(event.target.value)}>
+                  <select value={settings.filterStartYear} onChange={(event) => updateChartSettings(instance.id, { filterStartYear: event.target.value })}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`chart-start-${year}`} value={String(year)}>
-                        {formatYearOrAgeLabel(year, effectiveChartAxisMode, birthday)}
+                      <option key={`chart-start-${instance.id}-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveAxisMode, birthday)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
                   Time To
-                  <select value={chartFilterEndYear} onChange={(event) => setChartFilterEndYear(event.target.value)}>
+                  <select value={settings.filterEndYear} onChange={(event) => updateChartSettings(instance.id, { filterEndYear: event.target.value })}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`chart-end-${year}`} value={String(year)}>
-                        {formatYearOrAgeLabel(year, effectiveChartAxisMode, birthday)}
+                      <option key={`chart-end-${instance.id}-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveAxisMode, birthday)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
                   Section
-                  {renderSectionSelector(chartFilterSections, setChartFilterSections, "chart")}
+                  {renderSectionSelector(settings.filterSections, (next) => updateChartSettings(instance.id, { filterSections: next }), `chart-${instance.id}`)}
                 </label>
               </div>
             </section>
@@ -821,15 +998,15 @@ export function Overview() {
                   Total Line Color
                   <input
                     type="color"
-                    value={draftChartSettings.lineColor}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, lineColor: event.target.value }))}
+                    value={settings.lineColor}
+                    onChange={(event) => updateChartSettings(instance.id, { lineColor: event.target.value })}
                   />
                 </label>
                 <label>
                   Total Line Style
                   <select
-                    value={draftChartSettings.lineStyle}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, lineStyle: event.target.value as LineStyle }))}
+                    value={settings.lineStyle}
+                    onChange={(event) => updateChartSettings(instance.id, { lineStyle: event.target.value as LineStyle })}
                   >
                     <option value="solid">Solid</option>
                     <option value="dashed">Dashed</option>
@@ -838,16 +1015,16 @@ export function Overview() {
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.showDataPoints}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showDataPoints: event.target.checked }))}
+                    checked={settings.showDataPoints}
+                    onChange={(event) => updateChartSettings(instance.id, { showDataPoints: event.target.checked })}
                   />
                   Show Data Points
                 </label>
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.showPointValues}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showPointValues: event.target.checked }))}
+                    checked={settings.showPointValues}
+                    onChange={(event) => updateChartSettings(instance.id, { showPointValues: event.target.checked })}
                   />
                   Show Point Values
                 </label>
@@ -862,11 +1039,11 @@ export function Overview() {
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={formatNumberInput(draftChartSettings.goalValue)}
+                    value={formatNumberInput(settings.goalValue)}
                     placeholder="No goal"
                     onChange={(event) => {
                       const parsed = parseNumberInput(event.target.value);
-                      setDraftChartSettings((prev) => ({ ...prev, goalValue: parsed !== null && Number.isFinite(parsed) ? parsed : null }));
+                      updateChartSettings(instance.id, { goalValue: parsed !== null && Number.isFinite(parsed) ? parsed : null });
                     }}
                   />
                 </label>
@@ -874,15 +1051,15 @@ export function Overview() {
                   Goal Color
                   <input
                     type="color"
-                    value={draftChartSettings.goalColor}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, goalColor: event.target.value }))}
+                    value={settings.goalColor}
+                    onChange={(event) => updateChartSettings(instance.id, { goalColor: event.target.value })}
                   />
                 </label>
                 <label>
                   Goal Style
                   <select
-                    value={draftChartSettings.goalStyle}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, goalStyle: event.target.value as LineStyle }))}
+                    value={settings.goalStyle}
+                    onChange={(event) => updateChartSettings(instance.id, { goalStyle: event.target.value as LineStyle })}
                   >
                     <option value="solid">Solid</option>
                     <option value="dashed">Dashed</option>
@@ -899,11 +1076,11 @@ export function Overview() {
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={formatNumberInput(draftChartSettings.yAxisStep)}
+                    value={formatNumberInput(settings.yAxisStep)}
                     onChange={(event) => {
                       const parsed = parseNumberInput(event.target.value);
                       if (parsed === null || !Number.isFinite(parsed) || parsed <= 0) return;
-                      setDraftChartSettings((prev) => ({ ...prev, yAxisStep: Math.floor(parsed) }));
+                      updateChartSettings(instance.id, { yAxisStep: Math.floor(parsed) });
                     }}
                   />
                 </label>
@@ -912,54 +1089,52 @@ export function Overview() {
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={formatNumberInput(draftChartSettings.yAxisUpperBound)}
+                    value={formatNumberInput(settings.yAxisUpperBound)}
                     placeholder="Auto"
                     onChange={(event) => {
                       const parsed = parseNumberInput(event.target.value);
-                      setDraftChartSettings((prev) => ({
-                        ...prev,
-                        yAxisUpperBound: parsed !== null && Number.isFinite(parsed) ? parsed : null,
-                      }));
+                      updateChartSettings(instance.id, { yAxisUpperBound: parsed !== null && Number.isFinite(parsed) ? parsed : null });
                     }}
                   />
                 </label>
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.showYAxisTitle}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showYAxisTitle: event.target.checked }))}
+                    checked={settings.showYAxisTitle}
+                    onChange={(event) => updateChartSettings(instance.id, { showYAxisTitle: event.target.checked })}
                   />
                   Y-Axis Title
                 </label>
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.showYAxisLabels}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showYAxisLabels: event.target.checked }))}
+                    checked={settings.showYAxisLabels}
+                    onChange={(event) => updateChartSettings(instance.id, { showYAxisLabels: event.target.checked })}
                   />
                   Y-Axis Labels
                 </label>
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.showXAxisTitle}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showXAxisTitle: event.target.checked }))}
+                    checked={settings.showXAxisTitle}
+                    onChange={(event) => updateChartSettings(instance.id, { showXAxisTitle: event.target.checked })}
                   />
                   X-Axis Title
                 </label>
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.showXAxisLabels}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, showXAxisLabels: event.target.checked }))}
+                    checked={settings.showXAxisLabels}
+                    onChange={(event) => updateChartSettings(instance.id, { showXAxisLabels: event.target.checked })}
                   />
                   X-Axis Labels
                 </label>
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.chartXAxisMode === "age"}
-                    onChange={(event) => trySetAxisMode(event.target.checked ? "age" : "year", "chart")}
+                    checked={settings.chartXAxisMode === "age"}
+                    disabled={isLoading}
+                    onChange={(event) => trySetChartAxisMode(instance.id, event.target.checked ? "age" : "year")}
                   />
                   Use Age On X-Axis
                 </label>
@@ -969,16 +1144,16 @@ export function Overview() {
         )}
 
         <div className={`${styles.chartWrap} ${styles.chartWrapFlat}`}>
-          {activeChartSettings.titleEnabled && (
-            <h2 className={`${styles.chartTitle} ${activeChartSettings.titleAlign === "center" ? styles.alignCenter : activeChartSettings.titleAlign === "right" ? styles.alignRight : styles.alignLeft}`}>
-              {activeChartSettings.titleText}
+          {settings.titleEnabled && (
+            <h2 className={`${styles.chartTitle} ${settings.titleAlign === "center" ? styles.alignCenter : settings.titleAlign === "right" ? styles.alignRight : styles.alignLeft}`}>
+              {settings.titleText}
             </h2>
           )}
 
-          {activeChartSettings.showLegend && (
+          {settings.showLegend && (
             <div className={`${styles.chartLegendRow} ${legendPositionClass}`}>
-              {chartSeriesDefinitions.map((series) => (
-                <span key={`legend-inline-${series.name}`} className={styles.legendItem}>
+              {seriesDefinitions.map((series) => (
+                <span key={`legend-inline-${instance.id}-${series.name}`} className={styles.legendItem}>
                   <span
                     className={styles.legendSwatchLine}
                     style={{ borderColor: series.color, borderStyle: series.style === "dashed" ? "dashed" : "solid" }}
@@ -986,11 +1161,11 @@ export function Overview() {
                   {series.name}
                 </span>
               ))}
-              {activeChartSettings.goalValue !== null && (
+              {settings.goalValue !== null && (
                 <span className={styles.legendItem}>
                   <span
                     className={styles.legendSwatchGoal}
-                    style={{ borderColor: activeChartSettings.goalColor, borderStyle: activeChartSettings.goalStyle === "dashed" ? "dashed" : "solid" }}
+                    style={{ borderColor: settings.goalColor, borderStyle: settings.goalStyle === "dashed" ? "dashed" : "solid" }}
                   />
                   Goal
                 </span>
@@ -998,40 +1173,40 @@ export function Overview() {
             </div>
           )}
 
-          <svg className={styles.chartSvg} viewBox={`0 0 ${chartGeometry.width} ${chartGeometry.height}`} role="img" aria-label="Net worth trend line chart">
-            {chartGeometry.yTicks.map((tick) => (
+          <svg className={styles.chartSvg} viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label="Net worth trend line chart">
+            {geometry.yTicks.map((tick) => (
               <line
-                key={`grid-${tick}`}
-                x1={chartGeometry.left}
-                y1={chartGeometry.valueToY(tick)}
-                x2={chartGeometry.width - chartGeometry.right}
-                y2={chartGeometry.valueToY(tick)}
+                key={`grid-${instance.id}-${tick}`}
+                x1={geometry.left}
+                y1={geometry.valueToY(tick)}
+                x2={geometry.width - geometry.right}
+                y2={geometry.valueToY(tick)}
                 stroke="#e2e2e2"
                 strokeWidth="1"
               />
             ))}
 
-            <line x1={chartGeometry.left} y1={chartGeometry.baselineY} x2={chartGeometry.width - chartGeometry.right} y2={chartGeometry.baselineY} stroke="#d0d0d0" strokeWidth="1" />
-            <line x1={chartGeometry.left} y1={chartGeometry.top} x2={chartGeometry.left} y2={chartGeometry.baselineY} stroke="#d0d0d0" strokeWidth="1" />
+            <line x1={geometry.left} y1={geometry.baselineY} x2={geometry.width - geometry.right} y2={geometry.baselineY} stroke="#d0d0d0" strokeWidth="1" />
+            <line x1={geometry.left} y1={geometry.top} x2={geometry.left} y2={geometry.baselineY} stroke="#d0d0d0" strokeWidth="1" />
 
-            {activeChartSettings.goalValue !== null && chartGeometry.goalY !== null && (
+            {settings.goalValue !== null && geometry.goalY !== null && (
               <line
-                x1={chartGeometry.left}
-                y1={chartGeometry.goalY}
-                x2={chartGeometry.width - chartGeometry.right}
-                y2={chartGeometry.goalY}
-                stroke={activeChartSettings.goalColor}
+                x1={geometry.left}
+                y1={geometry.goalY}
+                x2={geometry.width - geometry.right}
+                y2={geometry.goalY}
+                stroke={settings.goalColor}
                 strokeWidth="2"
-                strokeDasharray={activeChartSettings.goalStyle === "dashed" ? "8 5" : undefined}
+                strokeDasharray={settings.goalStyle === "dashed" ? "8 5" : undefined}
               />
             )}
 
-            {chartSeriesDefinitions.map((series) => {
+            {seriesDefinitions.map((series) => {
               type ChartPoint = { x: number; y: number; value: number; index: number };
               const points = series.values.map((value, index) => (
                 value === null
                   ? null
-                  : { x: chartGeometry.indexToX(index), y: chartGeometry.valueToY(value), value, index }
+                  : { x: geometry.indexToX(index), y: geometry.valueToY(value), value, index }
               ));
               const lineSegments: ChartPoint[][] = [];
               let currentSegment: ChartPoint[] = [];
@@ -1054,10 +1229,10 @@ export function Overview() {
 
               const visiblePoints = points.filter((point): point is ChartPoint => point !== null);
               return (
-                <g key={`series-${series.name}`}>
+                <g key={`series-${instance.id}-${series.name}`}>
                   {lineSegments.map((segment, index) => (
                     <polyline
-                      key={`line-${series.name}-${index}`}
+                      key={`line-${instance.id}-${series.name}-${index}`}
                       points={segment.map((point) => `${point.x},${point.y}`).join(" ")}
                       fill="none"
                       stroke={series.color}
@@ -1068,12 +1243,12 @@ export function Overview() {
                     />
                   ))}
 
-                  {(activeChartSettings.showDataPoints || activeChartSettings.showPointValues) && visiblePoints.map((point) => (
-                    <g key={`point-${series.name}-${point.index}`}>
-                      {activeChartSettings.showDataPoints && (
+                  {(settings.showDataPoints || settings.showPointValues) && visiblePoints.map((point) => (
+                    <g key={`point-${instance.id}-${series.name}-${point.index}`}>
+                      {settings.showDataPoints && (
                       <circle cx={point.x} cy={point.y} r="3.5" fill={series.color} />
                       )}
-                      {activeChartSettings.showPointValues && (
+                      {settings.showPointValues && (
                         <text x={point.x} y={point.y - 10} textAnchor="middle" className={styles.pointValueLabel} fill={series.color}>
                           ${formatMoney(point.value)}
                         </text>
@@ -1084,11 +1259,11 @@ export function Overview() {
               );
             })}
 
-            {activeChartSettings.showYAxisLabels && chartGeometry.yTicks.map((tick) => (
+            {settings.showYAxisLabels && geometry.yTicks.map((tick) => (
               <text
-                key={`tick-label-${tick}`}
-                x={chartGeometry.left - 10}
-                y={chartGeometry.valueToY(tick) + 4}
+                key={`tick-label-${instance.id}-${tick}`}
+                x={geometry.left - 10}
+                y={geometry.valueToY(tick) + 4}
                 textAnchor="end"
                 className={styles.chartLabel}
               >
@@ -1096,26 +1271,26 @@ export function Overview() {
               </text>
             ))}
 
-            {activeChartSettings.showXAxisLabels && chartFilteredYears.map((year, index) => (
+            {settings.showXAxisLabels && filteredYears.map((year, index) => (
               <text
-                key={`x-label-${year}`}
-                x={chartGeometry.indexToX(index)}
-                y={chartGeometry.baselineY + 18}
+                key={`x-label-${instance.id}-${year}`}
+                x={geometry.indexToX(index)}
+                y={geometry.baselineY + 18}
                 textAnchor="middle"
                 className={styles.chartLabel}
               >
-                {formatYearOrAgeLabel(year, effectiveChartAxisMode, birthday)}
+                {formatYearOrAgeLabel(year, effectiveAxisMode, birthday)}
               </text>
             ))}
 
-            {activeChartSettings.showXAxisTitle && (
-              <text x={chartGeometry.width / 2} y={chartGeometry.height - 10} textAnchor="middle" className={styles.chartAxisTitle}>
-                {effectiveChartAxisMode === "age" ? "Age" : "Year"}
+            {settings.showXAxisTitle && (
+              <text x={geometry.width / 2} y={geometry.height - 10} textAnchor="middle" className={styles.chartAxisTitle}>
+                {effectiveAxisMode === "age" ? "Age" : "Year"}
               </text>
             )}
 
-            {activeChartSettings.showYAxisTitle && (
-              <text x={18} y={chartGeometry.height / 2} textAnchor="middle" transform={`rotate(-90 18 ${chartGeometry.height / 2})`} className={styles.chartAxisTitle}>
+            {settings.showYAxisTitle && (
+              <text x={18} y={geometry.height / 2} textAnchor="middle" transform={`rotate(-90 18 ${geometry.height / 2})`} className={styles.chartAxisTitle}>
                 Amount ($)
               </text>
             )}
@@ -1126,11 +1301,13 @@ export function Overview() {
     );
   }
 
-  function renderMarkdownWidget() {
-    const markdownSource = activeCaptionMd.length > 0 ? activeCaptionMd : DEFAULT_CAPTION_MD;
+  function renderMarkdownWidget(instance: OverviewWidgetInstance) {
+    const captionValue = isCustomizeOpen ? (draftCaptionsById[instance.id] ?? DEFAULT_CAPTION_MD) : (savedCaptionsById[instance.id] ?? DEFAULT_CAPTION_MD);
+    const markdownSource = captionValue.length > 0 ? captionValue : DEFAULT_CAPTION_MD;
+    const markdownTab = markdownTabById[instance.id] ?? "edit";
 
     return (
-      <section className={styles.widgetCard} key="md-widget">
+      <section className={styles.widgetCard} key={instance.id}>
         {isCustomizeOpen && <h2 className={styles.mdWidgetTitle}>MD Editor</h2>}
         <div className={styles.captionEditorWrap}>
           {isCustomizeOpen ? (
@@ -1139,14 +1316,14 @@ export function Overview() {
                 <button
                   type="button"
                   className={`${styles.captionTab} ${markdownTab === "edit" ? styles.captionTabActive : ""}`}
-                  onClick={() => setMarkdownTab("edit")}
+                  onClick={() => setMarkdownTabById((prev) => ({ ...prev, [instance.id]: "edit" }))}
                 >
                   Edit
                 </button>
                 <button
                   type="button"
                   className={`${styles.captionTab} ${markdownTab === "preview" ? styles.captionTabActive : ""}`}
-                  onClick={() => setMarkdownTab("preview")}
+                  onClick={() => setMarkdownTabById((prev) => ({ ...prev, [instance.id]: "preview" }))}
                 >
                   Preview
                 </button>
@@ -1156,8 +1333,8 @@ export function Overview() {
                 {markdownTab === "edit" ? (
                   <textarea
                     className={styles.captionEditor}
-                    value={draftCaptionMd}
-                    onChange={(event) => setDraftCaptionMd(event.target.value)}
+                    value={captionValue}
+                    onChange={(event) => updateCaption(instance.id, event.target.value)}
                     placeholder={DEFAULT_CAPTION_MD}
                   />
                 ) : (
@@ -1177,12 +1354,18 @@ export function Overview() {
     );
   }
 
-  function renderTableWidget() {
+  function renderTableWidget(instance: OverviewWidgetInstance) {
+    const settings = isCustomizeOpen ? (draftTableSettingsById[instance.id] ?? DEFAULT_TABLE_WIDGET_SETTINGS) : (savedTableSettingsById[instance.id] ?? DEFAULT_TABLE_WIDGET_SETTINGS);
+    const filteredYears = computeFilteredYears(settings.filterStartYear, settings.filterEndYear);
+    const tableRows = computeTableRows(settings, filteredYears);
+    const effectiveAxisMode: AxisMode = settings.tableXAxisMode === "age" && ageModeAvailable ? "age" : "year";
+    const expandedSections = expandedTableSectionsById[instance.id] ?? new Set<string>();
+
     return (
-      <section className={styles.widgetCard} key="table-widget">
-        {activeChartSettings.tableTitleEnabled && (
-          <h2 className={activeChartSettings.tableTitleAlign === "center" ? styles.alignCenter : activeChartSettings.tableTitleAlign === "right" ? styles.alignRight : styles.alignLeft}>
-            {activeChartSettings.tableTitleText}
+      <section className={styles.widgetCard} key={instance.id}>
+        {settings.tableTitleEnabled && (
+          <h2 className={settings.tableTitleAlign === "center" ? styles.alignCenter : settings.tableTitleAlign === "right" ? styles.alignRight : styles.alignLeft}>
+            {settings.tableTitleText}
           </h2>
         )}
 
@@ -1194,8 +1377,8 @@ export function Overview() {
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.tableTitleEnabled}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, tableTitleEnabled: event.target.checked }))}
+                    checked={settings.tableTitleEnabled}
+                    onChange={(event) => updateTableSettings(instance.id, { tableTitleEnabled: event.target.checked })}
                   />
                   Show Title
                 </label>
@@ -1203,15 +1386,15 @@ export function Overview() {
                   Title Text
                   <input
                     type="text"
-                    value={draftChartSettings.tableTitleText}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, tableTitleText: event.target.value }))}
+                    value={settings.tableTitleText}
+                    onChange={(event) => updateTableSettings(instance.id, { tableTitleText: event.target.value })}
                   />
                 </label>
                 <label>
                   Title Align
                   <select
-                    value={draftChartSettings.tableTitleAlign}
-                    onChange={(event) => setDraftChartSettings((prev) => ({ ...prev, tableTitleAlign: event.target.value as TitleAlign }))}
+                    value={settings.tableTitleAlign}
+                    onChange={(event) => updateTableSettings(instance.id, { tableTitleAlign: event.target.value as TitleAlign })}
                   >
                     <option value="left">Left</option>
                     <option value="center">Center</option>
@@ -1226,29 +1409,29 @@ export function Overview() {
               <div className={styles.filterBar}>
                 <label>
                   Time From
-                  <select value={tableFilterStartYear} onChange={(event) => setTableFilterStartYear(event.target.value)}>
+                  <select value={settings.filterStartYear} onChange={(event) => updateTableSettings(instance.id, { filterStartYear: event.target.value })}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`table-start-${year}`} value={String(year)}>
-                        {formatYearOrAgeLabel(year, effectiveTableAxisMode, birthday)}
+                      <option key={`table-start-${instance.id}-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveAxisMode, birthday)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
                   Time To
-                  <select value={tableFilterEndYear} onChange={(event) => setTableFilterEndYear(event.target.value)}>
+                  <select value={settings.filterEndYear} onChange={(event) => updateTableSettings(instance.id, { filterEndYear: event.target.value })}>
                     <option value="">All</option>
                     {years.map((year) => (
-                      <option key={`table-end-${year}`} value={String(year)}>
-                        {formatYearOrAgeLabel(year, effectiveTableAxisMode, birthday)}
+                      <option key={`table-end-${instance.id}-${year}`} value={String(year)}>
+                        {formatYearOrAgeLabel(year, effectiveAxisMode, birthday)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
                   Section
-                  {renderSectionSelector(tableFilterSections, setTableFilterSections, "table")}
+                  {renderSectionSelector(settings.filterSections, (next) => updateTableSettings(instance.id, { filterSections: next }), `table-${instance.id}`)}
                 </label>
               </div>
             </section>
@@ -1259,8 +1442,9 @@ export function Overview() {
                 <label className={styles.checkLabel}>
                   <input
                     type="checkbox"
-                    checked={draftChartSettings.tableXAxisMode === "age"}
-                    onChange={(event) => trySetAxisMode(event.target.checked ? "age" : "year", "table")}
+                    checked={settings.tableXAxisMode === "age"}
+                    disabled={isLoading}
+                    onChange={(event) => trySetTableAxisMode(instance.id, event.target.checked ? "age" : "year")}
                   />
                   Use Age
                 </label>
@@ -1274,20 +1458,49 @@ export function Overview() {
             <thead>
               <tr>
                 <th aria-label="Category label column" />
-                {tableFilteredYears.map((year) => (
-                  <th key={year}>{formatYearOrAgeLabel(year, effectiveTableAxisMode, birthday)}</th>
+                {filteredYears.map((year) => (
+                  <th key={year}>{formatYearOrAgeLabel(year, effectiveAxisMode, birthday)}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((row) => (
-                <tr key={row.label}>
-                  <td>{row.label}</td>
-                  {row.values.map((value, index) => (
-                    <td key={`${row.label}-${tableFilteredYears[index]}`}>${formatMoney(value)}</td>
-                  ))}
-                </tr>
-              ))}
+              {tableRows.map((row) => {
+                const isExpandable = row.label !== "Total Net Worth";
+                const isExpanded = isExpandable && expandedSections.has(row.label);
+                return (
+                  <Fragment key={row.label}>
+                    <tr>
+                      <td>
+                        <span className={styles.tableRowLabelWrap}>
+                          {isExpandable && (
+                            <button
+                              type="button"
+                              className={`${styles.tableRowChevron} ${isExpanded ? styles.tableRowChevronExpanded : ""}`}
+                              onClick={() => toggleTableSection(instance.id, row.label)}
+                              aria-label={isExpanded ? `Collapse ${row.label}` : `Expand ${row.label}`}
+                              aria-expanded={isExpanded}
+                            >
+                              &#9656;
+                            </button>
+                          )}
+                          {row.label}
+                        </span>
+                      </td>
+                      {row.values.map((value, index) => (
+                        <td key={`${row.label}-${filteredYears[index]}`}>${formatMoney(value)}</td>
+                      ))}
+                    </tr>
+                    {isExpanded && row.accounts.map((account) => (
+                      <tr key={`${row.label}-${account.id}`} className={styles.tableAccountRow}>
+                        <td>{account.label}</td>
+                        {account.values.map((value, index) => (
+                          <td key={`${row.label}-${account.id}-${filteredYears[index]}`}>${formatMoney(value)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1295,10 +1508,10 @@ export function Overview() {
     );
   }
 
-  function renderWidget(key: OverviewWidgetKey) {
-    if (key === "chart") return renderChartWidget();
-    if (key === "captions") return renderMarkdownWidget();
-    return renderTableWidget();
+  function renderWidget(instance: OverviewWidgetInstance) {
+    if (instance.key === "chart") return renderChartWidget(instance);
+    if (instance.key === "captions") return renderMarkdownWidget(instance);
+    return renderTableWidget(instance);
   }
 
   return (
@@ -1344,27 +1557,27 @@ export function Overview() {
                 <section className={styles.widgetChooserColumn}>
                   <h3>Active widgets</h3>
                   <div className={styles.widgetChooserRows}>
-                    {draftWidgetPreferences.filter((widget) => widget.enabled).map((widget) => (
+                    {draftWidgetInstances.map((widget) => (
                       <div
-                        key={`active-${widget.key}`}
-                        className={`${styles.widgetChooserRow} ${styles.widgetChooserRowActive} ${draggedWidgetKey === widget.key ? styles.widgetTileDragging : ""}`}
+                        key={`active-${widget.id}`}
+                        className={`${styles.widgetChooserRow} ${styles.widgetChooserRowActive} ${draggedWidgetId === widget.id ? styles.widgetTileDragging : ""}`}
                         draggable
-                        onDragStart={() => setDraggedWidgetKey(widget.key)}
+                        onDragStart={() => setDraggedWidgetId(widget.id)}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={() => {
-                          if (draggedWidgetKey) {
-                            reorderActiveWidgets(draggedWidgetKey, widget.key);
+                          if (draggedWidgetId) {
+                            reorderActiveWidgets(draggedWidgetId, widget.id);
                           }
-                          setDraggedWidgetKey(null);
+                          setDraggedWidgetId(null);
                         }}
-                        onDragEnd={() => setDraggedWidgetKey(null)}
+                        onDragEnd={() => setDraggedWidgetId(null)}
                       >
                         <div className={styles.widgetChooserLabelWrap}>
                           <span className={styles.widgetDragHandle} aria-hidden="true" />
                           <span>{WIDGET_LABELS[widget.key]}</span>
                         </div>
                         <div className={styles.widgetChooserRowActions}>
-                          <button type="button" onClick={() => setWidgetEnabled(widget.key, false)}>Remove</button>
+                          <button type="button" onClick={() => removeWidgetInstance(widget.id)}>Remove</button>
                         </div>
                       </div>
                     ))}
@@ -1374,11 +1587,11 @@ export function Overview() {
                 <section className={styles.widgetChooserColumn}>
                   <h3>Available widgets</h3>
                   <div className={styles.widgetChooserRows}>
-                    {draftWidgetPreferences.filter((widget) => !widget.enabled).map((widget) => (
-                      <div key={`inactive-${widget.key}`} className={styles.widgetChooserRow}>
-                        <span>{WIDGET_LABELS[widget.key]}</span>
+                    {WIDGET_TYPES.map((key) => (
+                      <div key={`inactive-${key}`} className={styles.widgetChooserRow}>
+                        <span>{WIDGET_LABELS[key]}</span>
                         <div className={styles.widgetChooserRowActions}>
-                          <button type="button" onClick={() => setWidgetEnabled(widget.key, true)}>Add</button>
+                          <button type="button" onClick={() => addWidgetInstance(key)}>Add</button>
                         </div>
                       </div>
                     ))}
@@ -1391,7 +1604,7 @@ export function Overview() {
           {isLoading && <p className={styles.loadingText}>Loading overview...</p>}
           {!isLoading && years.length === 0 && <p className={styles.emptyText}>No Entry history yet. Add values in Entry to populate your overview.</p>}
 
-          {!isLoading && years.length > 0 && activeWidgetPreferences.filter((item) => item.enabled).map((item) => renderWidget(item.key))}
+          {!isLoading && years.length > 0 && activeWidgetInstances.map((instance) => renderWidget(instance))}
         </section>
       </main>
 
