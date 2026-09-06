@@ -251,7 +251,7 @@ app.put("/api/entry", async (req, res) => {
           [accountId, user.id, groupId, accountName, coinSymbol, isDebt, accountPosition]
         );
 
-        const years = new Set([
+        const years = new Set<number>([
           ...Object.keys(values).map(Number),
           ...Object.keys(conversions).map(Number),
         ]);
