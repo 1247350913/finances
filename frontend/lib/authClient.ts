@@ -41,10 +41,12 @@ function normalizeError(payload: any, fallback: string): Error {
 
 async function fetchAuth(path: string, init: RequestInit = {}) {
   const response = await fetch(authUrl(`/auth${path}`), {
+  const response = await fetch(authUrl(`/auth${path}`), {
     ...init,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      "X-App-Id": APP_ID,
       "X-App-Id": APP_ID,
       ...(init.headers ?? {}),
     },
