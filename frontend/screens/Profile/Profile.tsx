@@ -50,7 +50,7 @@ export function Profile() {
         const nextMetadata: Metadata = {
           username: session.username ?? "",
           display_name: "",
-          birth_date: "",
+          birth_date: session.birthDate ?? "",
           profile_photo_url: "",
         };
 
@@ -58,7 +58,7 @@ export function Profile() {
         setEmail(session.email ?? "");
         setUsername(session.username ?? "");
         setDisplayName("");
-        setBirthday("");
+        setBirthday(session.birthDate ?? "");
         setPhotoUrl("");
         return;
       }
@@ -91,7 +91,10 @@ export function Profile() {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: String(merged.username ?? "") }),
+        body: JSON.stringify({
+          username: String(merged.username ?? ""),
+          birth_date: String(merged.birth_date ?? ""),
+        }),
       });
 
       const payload = await response.json().catch(() => ({}));

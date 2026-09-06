@@ -9,7 +9,9 @@ type EntryAccount = {
   id: string;
   name: string;
   coinSymbol: string | null;
+  isDebt: boolean;
   values: Partial<Record<number, string>>;
+  conversions: Partial<Record<number, string>>;
 };
 
 type EntryGroup = {
@@ -152,13 +154,30 @@ function formatNumericValue(value: string) {
   return `${formattedInteger}.${fractionalRaw}`;
 }
 
+function calculateCryptoTotalUsd(amountStr: string | undefined, conversionRateStr: string | undefined): string {
+  if (!amountStr || !conversionRateStr) return "-";
+  const amount = Number(stripDisplaySeparators(amountStr));
+  const rate = Number(stripDisplaySeparators(conversionRateStr));
+  if (!Number.isFinite(amount) || !Number.isFinite(rate) || amount <= 0 || rate <= 0) return "-";
+  const total = amount * rate;
+  const roundedToNearestThousand = Math.round(total / 1000) * 1000;
+  return roundedToNearestThousand.toLocaleString();
+}
+
 function createAccount(name = ""): EntryAccount {
   return {
     id: makeId(),
     name,
     coinSymbol: null,
+    isDebt: false,
     values: {},
+    conversions: {},
   };
+}
+
+function withDebtSign(displayValue: string, isDebt: boolean) {
+  if (!isDebt || displayValue.length === 0 || displayValue === "-") return displayValue;
+  return `-${displayValue}`;
 }
 
 export function Entry() {
@@ -177,6 +196,14 @@ export function Entry() {
   const [dropTarget, setDropTarget] = useState<DragItem | null>(null);
   const [coinPickerAccountId, setCoinPickerAccountId] = useState<string | null>(null);
   const [coinSearchQuery, setCoinSearchQuery] = useState("");
+  const [cryptoViewDisplayMode, setCryptoViewDisplayMode] = useState<Record<string, "coin" | "usd">>({});
+
+  function toggleAccountDisplayMode(accountId: string) {
+    setCryptoViewDisplayMode((prev) => ({
+      ...prev,
+      [accountId]: prev[accountId] === "usd" ? "coin" : "usd",
+    }));
+  }
 
   const displayGroups = useMemo(() => (isEditing ? draftGroups : groups), [draftGroups, groups, isEditing]);
   const persistedYears = useMemo(() => buildYearRange(yearStart, yearEnd), [yearStart, yearEnd]);
@@ -222,7 +249,9 @@ export function Entry() {
       accounts: group.accounts.map((account) => ({
         ...account,
         coinSymbol: account.coinSymbol,
+        isDebt: account.isDebt,
         values: { ...account.values },
+        conversions: { ...account.conversions },
       })),
     }));
   }
@@ -352,8 +381,8 @@ export function Entry() {
 
         const [{ data: groupsRows, error: groupsError }, { data: accountsRows, error: accountsError }, { data: valuesRows, error: valuesError }, { data: settingsRows, error: settingsError }] = await Promise.all([
           supabase.from("entry_groups").select("id,name,position").eq("user_id", userId).order("position", { ascending: true }),
-          supabase.from("entry_accounts").select("id,group_id,name,coin_symbol,position").eq("user_id", userId).order("position", { ascending: true }),
-          supabase.from("entry_account_values").select("account_id,year,value").eq("user_id", userId).order("year", { ascending: true }),
+          supabase.from("entry_accounts").select("id,group_id,name,coin_symbol,is_debt,position").eq("user_id", userId).order("position", { ascending: true }),
+          supabase.from("entry_account_values").select("account_id,year,value,conversion_rate").eq("user_id", userId).order("year", { ascending: true }),
           supabase.from("entry_settings").select("start_year,end_year").eq("user_id", userId).limit(1),
         ]);
 
@@ -369,11 +398,18 @@ export function Entry() {
       }
 
       const valuesByAccount = new Map<string, Partial<Record<number, string>>>();
+      const conversionsByAccount = new Map<string, Partial<Record<number, string>>>();
 
       for (const valueRow of valuesData ?? []) {
-        const existing = valuesByAccount.get(valueRow.account_id) ?? {};
-        existing[valueRow.year] = normalizeNumericValue(valueRow.value);
-        valuesByAccount.set(valueRow.account_id, existing);
+        const existingValues = valuesByAccount.get(valueRow.account_id) ?? {};
+        existingValues[valueRow.year] = normalizeNumericValue(valueRow.value);
+        valuesByAccount.set(valueRow.account_id, existingValues);
+
+        if (valueRow.conversion_rate !== null && valueRow.conversion_rate !== undefined && String(valueRow.conversion_rate).length > 0) {
+          const existingConversions = conversionsByAccount.get(valueRow.account_id) ?? {};
+          existingConversions[valueRow.year] = normalizeNumericValue(String(valueRow.conversion_rate));
+          conversionsByAccount.set(valueRow.account_id, existingConversions);
+        }
       }
 
       const accountsByGroup = new Map<string, EntryAccount[]>();
@@ -383,7 +419,9 @@ export function Entry() {
           id: accountRow.id,
           name: accountRow.name,
           coinSymbol: accountRow.coin_symbol ?? null,
+          isDebt: Boolean(accountRow.is_debt),
           values: valuesByAccount.get(accountRow.id) ?? {},
+          conversions: conversionsByAccount.get(accountRow.id) ?? {},
         };
 
         const existing = accountsByGroup.get(accountRow.group_id) ?? [];
@@ -502,6 +540,21 @@ export function Entry() {
     );
   }
 
+  function toggleAccountDebt(groupId: string, accountId: string) {
+    setDraftGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== groupId) return group;
+
+        return {
+          ...group,
+          accounts: group.accounts.map((account) =>
+            account.id === accountId ? { ...account, isDebt: !account.isDebt } : account
+          ),
+        };
+      })
+    );
+  }
+
   function updateAccountValue(groupId: string, accountId: string, year: number, nextValue: string) {
     const sanitized = stripDisplaySeparators(nextValue);
 
@@ -550,6 +603,63 @@ export function Entry() {
               ...account,
               values: {
                 ...account.values,
+                [year]: nextValue,
+              },
+            };
+          }),
+        };
+      })
+    );
+  }
+
+  function updateAccountConversion(groupId: string, accountId: string, year: number, nextValue: string) {
+    const sanitized = stripDisplaySeparators(nextValue);
+
+    if (!isValidNumericInput(sanitized)) {
+      setErrorMessage(VALUE_VALIDATION_MESSAGE);
+      return;
+    }
+
+    setErrorMessage((prev) => (prev === VALUE_VALIDATION_MESSAGE ? null : prev));
+
+    setDraftGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== groupId) return group;
+
+        return {
+          ...group,
+          accounts: group.accounts.map((account) => {
+            if (account.id !== accountId) return account;
+
+            return {
+              ...account,
+              conversions: {
+                ...account.conversions,
+                [year]: sanitized,
+              },
+            };
+          }),
+        };
+      })
+    );
+  }
+
+  function finalizeAccountConversion(groupId: string, accountId: string, year: number) {
+    setDraftGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== groupId) return group;
+
+        return {
+          ...group,
+          accounts: group.accounts.map((account) => {
+            if (account.id !== accountId) return account;
+
+            const nextValue = normalizeNumericValue(account.conversions[year] ?? "");
+
+            return {
+              ...account,
+              conversions: {
+                ...account.conversions,
                 [year]: nextValue,
               },
             };
@@ -621,8 +731,10 @@ export function Entry() {
           group_id: group.id,
           name: account.name.trim().length > 0 ? account.name.trim() : `Account ${accountIndex + 1}`,
           coin_symbol: account.coinSymbol,
+          is_debt: account.isDebt,
           position: accountIndex,
           values: account.values,
+          conversions: account.conversions,
         })),
       }));
 
@@ -632,6 +744,7 @@ export function Entry() {
         group_id: account.group_id,
         name: account.name,
         coin_symbol: account.coin_symbol,
+        is_debt: account.is_debt,
         position: account.position,
       })));
 
@@ -639,15 +752,18 @@ export function Entry() {
         group.accounts.flatMap((account) =>
           activeYears.flatMap((year) => {
             const rawValue = account.values[year] ?? "";
-              const value = normalizeNumericValue(rawValue);
+            const value = normalizeNumericValue(rawValue);
+            const rawConversion = account.conversions?.[year] ?? "";
+            const conversionRate = normalizeNumericValue(rawConversion);
 
-            if (value.length === 0) return [];
+            if (value.length === 0 && conversionRate.length === 0) return [];
 
             return [{
               user_id: userId,
               account_id: account.id,
               year,
               value,
+              conversion_rate: conversionRate.length > 0 ? conversionRate : null,
             }];
           })
         )
@@ -728,7 +844,9 @@ export function Entry() {
           id: account.id,
           name: account.name,
           coinSymbol: account.coin_symbol,
+          isDebt: account.is_debt,
           values: { ...account.values },
+          conversions: { ...account.conversions },
         })),
       }));
 
@@ -893,134 +1011,201 @@ export function Entry() {
                     </tr>
                   )}
 
-                  {group.accounts.map((account) => (
-                    <tr
-                      key={account.id}
-                      className={dropTarget?.type === "account" && dropTarget.groupId === group.id && dropTarget.accountId === account.id ? styles.dropTarget : ""}
-                      onDragOver={(event) => {
-                        if (!isEditing) return;
-                        event.preventDefault();
-                        if (!dragItem) return;
-                        setDropTarget({ type: "account", groupId: group.id, accountId: account.id });
-                      }}
-                      onDrop={(event) => {
-                        if (!isEditing) return;
-                        event.preventDefault();
-                        handleAccountDrop(group.id, account.id);
-                      }}
-                    >
-                      <td>
-                        <div className={`${styles.accountCell} ${isEditing ? styles.accountCellEditing : ""}`}>
-                          {isEditing ? (
-                            <>
-                              <button
-                                type="button"
-                                className={styles.dragHandle}
-                                draggable
-                                onDragStart={() => handleDragStart({ type: "account", groupId: group.id, accountId: account.id })}
-                                onDragEnd={handleDragEnd}
-                                aria-label={`Drag account ${account.name || "untitled account"}`}
-                              >
-                                ⋮⋮
-                              </button>
-                              <div className={styles.accountNameEditor}>
-                                <input
-                                  value={account.name}
-                                  onChange={(event) => updateAccountName(group.id, account.id, event.target.value)}
-                                  aria-label="Account name"
-                                  placeholder="Account name"
-                                />
-                              </div>
-                              <div className={styles.accountActions}>
-                                <button
-                                  type="button"
-                                  className={`${styles.coinToggleButton} ${account.coinSymbol ? styles.coinToggleActive : ""}`}
-                                  aria-label={`Select coin symbol for ${account.name || "account"}`}
-                                  onClick={() => {
-                                    if (coinPickerAccountId === account.id) {
-                                      setCoinPickerAccountId(null);
-                                      setCoinSearchQuery("");
-                                    } else {
-                                      setCoinPickerAccountId(account.id);
-                                      setCoinSearchQuery(account.coinSymbol ?? "");
-                                    }
-                                  }}
-                                >
-                                  {account.coinSymbol ?? (
-                                    <img className={styles.coinFallbackIcon} src={ASSETS.cryptoCoin} alt="" aria-hidden="true" />
-                                  )}
-                                </button>
-                                <button type="button" onClick={() => removeAccount(group.id, account.id)} aria-label="Remove account">
-                                  x
-                                </button>
+                  {group.accounts.map((account) => {
+                    const isCrypto = Boolean(account.coinSymbol);
+                    const isUsdMode = cryptoViewDisplayMode[account.id] === "usd";
 
-                                {coinPickerAccountId === account.id && (
-                                  <div className={styles.coinPicker}>
+                    return (
+                      <tr
+                        key={account.id}
+                        className={dropTarget?.type === "account" && dropTarget.groupId === group.id && dropTarget.accountId === account.id ? styles.dropTarget : ""}
+                        onDragOver={(event) => {
+                          if (!isEditing) return;
+                          event.preventDefault();
+                          if (!dragItem) return;
+                          setDropTarget({ type: "account", groupId: group.id, accountId: account.id });
+                        }}
+                        onDrop={(event) => {
+                          if (!isEditing) return;
+                          event.preventDefault();
+                          handleAccountDrop(group.id, account.id);
+                        }}
+                      >
+                        <td>
+                          <div className={`${styles.accountCell} ${isEditing ? styles.accountCellEditing : ""} ${isEditing && isCrypto ? styles.accountCellStacked : ""}`}>
+                            {isEditing ? (
+                              <>
+                                <div className={styles.accountEditorTop}>
+                                  <button
+                                    type="button"
+                                    className={styles.dragHandle}
+                                    draggable
+                                    onDragStart={() => handleDragStart({ type: "account", groupId: group.id, accountId: account.id })}
+                                    onDragEnd={handleDragEnd}
+                                    aria-label={`Drag account ${account.name || "untitled account"}`}
+                                  >
+                                    ⋮⋮
+                                  </button>
+                                  <div className={styles.accountNameEditor}>
                                     <input
-                                      className={styles.coinSearchInput}
-                                      value={coinSearchQuery}
-                                      onChange={(event) => setCoinSearchQuery(event.target.value.toUpperCase())}
-                                      placeholder="Search symbol"
-                                      aria-label="Search coin symbol"
+                                      value={account.name}
+                                      onChange={(event) => updateAccountName(group.id, account.id, event.target.value)}
+                                      aria-label="Account name"
+                                      placeholder="Account name"
                                     />
-                                    <div className={styles.coinList}>
-                                      <button
-                                        type="button"
-                                        className={styles.coinOptionClear}
-                                        onClick={() => {
-                                          updateAccountCoinSymbol(group.id, account.id, null);
+                                  </div>
+                                  <div className={styles.accountActions}>
+                                    <button
+                                      type="button"
+                                      className={`${styles.coinToggleButton} ${account.coinSymbol ? styles.coinToggleActive : ""}`}
+                                      aria-label={`Select coin symbol for ${account.name || "account"}`}
+                                      onClick={() => {
+                                        if (coinPickerAccountId === account.id) {
                                           setCoinPickerAccountId(null);
                                           setCoinSearchQuery("");
-                                        }}
-                                      >
-                                        Clear selection
-                                      </button>
-                                      {filteredCoinSymbols.map((symbol) => (
-                                        <button
-                                          type="button"
-                                          key={symbol}
-                                          className={styles.coinOption}
-                                          onClick={() => {
-                                            updateAccountCoinSymbol(group.id, account.id, symbol);
-                                            setCoinPickerAccountId(null);
-                                            setCoinSearchQuery("");
-                                          }}
-                                        >
-                                          {symbol}
-                                        </button>
-                                      ))}
-                                      {filteredCoinSymbols.length === 0 && <p className={styles.coinNoResults}>No symbols found.</p>}
-                                    </div>
+                                        } else {
+                                          setCoinPickerAccountId(account.id);
+                                          setCoinSearchQuery(account.coinSymbol ?? "");
+                                        }
+                                      }}
+                                    >
+                                      {account.coinSymbol ?? (
+                                        <img className={styles.coinFallbackIcon} src={ASSETS.cryptoCoin} alt="" aria-hidden="true" />
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`${styles.debtToggleButton} ${account.isDebt ? styles.debtToggleActive : ""}`}
+                                      aria-label={`Toggle debt account for ${account.name || "account"}`}
+                                      title={account.isDebt ? "Debt account. Click to turn off." : "Mark as a debt account (values shown as negative)."}
+                                      onClick={() => toggleAccountDebt(group.id, account.id)}
+                                    >
+                                      -
+                                    </button>
+                                    <button type="button" onClick={() => removeAccount(group.id, account.id)} aria-label="Remove account">
+                                      x
+                                    </button>
+
+                                    {coinPickerAccountId === account.id && (
+                                      <div className={styles.coinPicker}>
+                                        <input
+                                          className={styles.coinSearchInput}
+                                          value={coinSearchQuery}
+                                          onChange={(event) => setCoinSearchQuery(event.target.value.toUpperCase())}
+                                          placeholder="Search symbol"
+                                          aria-label="Search coin symbol"
+                                        />
+                                        <div className={styles.coinList}>
+                                          <button
+                                            type="button"
+                                            className={styles.coinOptionClear}
+                                            onClick={() => {
+                                              updateAccountCoinSymbol(group.id, account.id, null);
+                                              setCoinPickerAccountId(null);
+                                              setCoinSearchQuery("");
+                                            }}
+                                          >
+                                            Clear selection
+                                          </button>
+                                          {filteredCoinSymbols.map((symbol) => (
+                                            <button
+                                              type="button"
+                                              key={symbol}
+                                              className={styles.coinOption}
+                                              onClick={() => {
+                                                updateAccountCoinSymbol(group.id, account.id, symbol);
+                                                setCoinPickerAccountId(null);
+                                                setCoinSearchQuery("");
+                                              }}
+                                            >
+                                              {symbol}
+                                            </button>
+                                          ))}
+                                          {filteredCoinSymbols.length === 0 && <p className={styles.coinNoResults}>No symbols found.</p>}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                {isCrypto && (
+                                  <div className={styles.cryptoRateSublabel}>
+                                    <span>1 {account.coinSymbol} =</span>
                                   </div>
                                 )}
-                              </div>
-                            </>
-                          ) : (
-                            <p className={styles.accountName}>{account.name}</p>
-                          )}
-                        </div>
-                      </td>
-
-                      {displayYears.map((year) => (
-                        <td key={`${account.id}-${year}`}>
-                          {isEditing ? (
-                            <input
-                              className={styles.valueInput}
-                              value={formatNumericValue(account.values[year] ?? "")}
-                              onChange={(event) => updateAccountValue(group.id, account.id, year, event.target.value)}
-                              onBlur={() => finalizeAccountValue(group.id, account.id, year)}
-                              placeholder="-"
-                              inputMode="decimal"
-                              pattern="[0-9,\.]*"
-                              aria-label={`${account.name || "Account"} value for ${year}`}
-                            />
-                          ) : (
-                            <span className={styles.readOnlyValue}>{formatNumericValue(account.values[year] || "") || "-"}</span>
-                          )}
+                              </>
+                            ) : (
+                              <>
+                                <p className={styles.accountName}>{account.name}</p>
+                                {account.coinSymbol && (
+                                  <button
+                                    type="button"
+                                    className={`${styles.coinBadgeButton} ${isUsdMode ? styles.coinBadgeButtonUsd : ""}`}
+                                    onClick={() => toggleAccountDisplayMode(account.id)}
+                                    title={isUsdMode ? "Currently showing USD values. Click to show raw coin amounts." : `Currently showing ${account.coinSymbol} amounts. Click to show USD values.`}
+                                    aria-label={`Toggle currency mode for ${account.name || "account"}`}
+                                  >
+                                    {isUsdMode ? "USD" : account.coinSymbol}
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </td>
-                      ))}
-                    </tr>
-                  ))}
+
+                        {displayYears.map((year) => (
+                          <td key={`${account.id}-${year}`}>
+                            {isEditing ? (
+                              isCrypto ? (
+                                <div className={styles.cryptoCell}>
+                                  <input
+                                    className={styles.valueInput}
+                                    value={withDebtSign(formatNumericValue(account.values[year] ?? ""), account.isDebt)}
+                                    onChange={(event) => updateAccountValue(group.id, account.id, year, event.target.value.replace(/^-+/, ""))}
+                                    onBlur={() => finalizeAccountValue(group.id, account.id, year)}
+                                    placeholder="-"
+                                    inputMode="decimal"
+                                    pattern="[0-9,\.]*"
+                                    aria-label={`${account.name || "Account"} ${account.coinSymbol} amount for ${year}`}
+                                  />
+                                  <input
+                                    className={`${styles.valueInput} ${styles.conversionInput}`}
+                                    value={formatNumericValue(account.conversions[year] ?? "")}
+                                    onChange={(event) => updateAccountConversion(group.id, account.id, year, event.target.value)}
+                                    onBlur={() => finalizeAccountConversion(group.id, account.id, year)}
+                                    placeholder={`$ / ${account.coinSymbol}`}
+                                    inputMode="decimal"
+                                    pattern="[0-9,\.]*"
+                                    aria-label={`${account.name || "Account"} conversion rate for 1 ${account.coinSymbol} in ${year}`}
+                                  />
+                                </div>
+                              ) : (
+                                <input
+                                  className={styles.valueInput}
+                                  value={withDebtSign(formatNumericValue(account.values[year] ?? ""), account.isDebt)}
+                                  onChange={(event) => updateAccountValue(group.id, account.id, year, event.target.value.replace(/^-+/, ""))}
+                                  onBlur={() => finalizeAccountValue(group.id, account.id, year)}
+                                  placeholder="-"
+                                  inputMode="decimal"
+                                  pattern="[0-9,\.]*"
+                                  aria-label={`${account.name || "Account"} value for ${year}`}
+                                />
+                              )
+                            ) : (
+                              isCrypto && isUsdMode ? (
+                                <span className={styles.readOnlyValue}>
+                                  {withDebtSign(calculateCryptoTotalUsd(account.values[year], account.conversions[year]), account.isDebt)}
+                                </span>
+                              ) : (
+                                <span className={styles.readOnlyValue}>
+                                  {withDebtSign(formatNumericValue(account.values[year] || "") || "-", account.isDebt)}
+                                </span>
+                              )
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
                 </Fragment>
               ))}
             </tbody>
