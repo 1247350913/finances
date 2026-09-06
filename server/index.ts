@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { config as loadEnv } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
 import { PDFParse } from "pdf-parse";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -16,8 +15,6 @@ loadEnv();
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3001);
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // In production, restrict CORS to known frontend origins only.
 // ALLOWED_ORIGINS is a comma-separated list set via Cloud Run env var.
@@ -607,55 +604,6 @@ type ParseRequest = {
 type CustomParserTestRequest = ParseRequest & {
   parserSource: string;
 };
-
-function getBearerToken(authHeader: string | undefined) {
-  const header = String(authHeader ?? "").trim();
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() ?? "";
-}
-
-function createAdminSupabaseClient() {
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error(
-      "Missing Supabase server environment variables. Set VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.development (or your server runtime env)."
-    );
-  }
-
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-}
-
-app.post("/api/account/delete", async (req, res) => {
-  try {
-    const token = getBearerToken(req.header("authorization"));
-    if (!token) {
-      res.status(401).json({ ok: false, message: "Missing access token." });
-      return;
-    }
-
-    const adminSupabase = createAdminSupabaseClient();
-
-    const { data: userData, error: userError } = await adminSupabase.auth.getUser(token);
-    if (userError || !userData.user) {
-      res.status(401).json({ ok: false, message: "Invalid or expired session." });
-      return;
-    }
-
-    const { error: deleteError } = await adminSupabase.auth.admin.deleteUser(userData.user.id, false);
-    if (deleteError) {
-      throw deleteError;
-    }
-
-    res.json({ ok: true });
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ ok: false, message: error?.message ?? "Could not delete account." });
-  }
-});
 
 app.post("/api/parse/capital-one", async (req, res) => {
   try {

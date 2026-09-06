@@ -6,7 +6,7 @@ A personal finance management platform for tracking expenses, monitoring account
 
 ## Features
 
-- **Secure Authentication**: Email-based sign-up and login (custom server auth, with legacy Supabase mode during migration)
+- **Secure Authentication**: Email-based sign-up and login via the shared `auth-service`
 - **Expense Tracking**: Log and categorize expenses with a clean, intuitive interface
 - **Bank Statement Parser**: Automatically parse and import expenses from bank statements (PDF, CSV, and text formats)
 - **Custom Parsers**: Create and test custom statement parsers for your specific bank format
@@ -20,7 +20,7 @@ A personal finance management platform for tracking expenses, monitoring account
 - **React 19** with TypeScript
 - **Vite** for fast build and dev experience
 - **React Router** for navigation
-- **Custom auth client** for server-managed sessions (legacy Supabase mode supported during migration)
+- **Custom auth client** for server-managed sessions via the shared `auth-service`
 - **CSS Modules** for component-scoped styling
 
 ### Backend
@@ -51,8 +51,7 @@ pnpm install
 
 3. Set up environment variables:
 	- Create `.env.development` from `.env.development.example`
-	- Set `DATABASE_URL` and `JWT_SECRET` for custom auth + Neon
-	- Keep legacy Supabase values only while migrating remaining data flows
+	- Set `DATABASE_URL` and `JWT_SECRET` for auth-service + Neon
 
 4. Start development:
 ```bash
@@ -128,11 +127,11 @@ Optional release step:
 
 ### Authentication Flow
 
-The app supports a migration-safe auth strategy:
+Authentication is delegated to the standalone `auth-service`:
 - Users sign up or log in with email
 - OTP verification via email
-- Server-managed JWT session cookie
-- Legacy Supabase mode toggle with `VITE_AUTH_MODE=legacy-supabase`
+- HttpOnly JWT session cookie
+- User/profile data stored in this app's Neon database via auth-service's `NEON_URI_FINANCES` connection
 
 See [frontend/screens/Auth/](frontend/screens/Auth/) for the authentication screens.
 

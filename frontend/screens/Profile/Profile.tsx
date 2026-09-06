@@ -1,8 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Footer } from "../../components/Footer";
-import { ASSETS, apiUrl, authClient } from "../../lib";
-import { supabase } from "../../lib/supabaseClient";
+import { ASSETS, authClient } from "../../lib";
 import styles from "./Profile.module.css";
 
 const APP_REPO_URL = "https://github.com/1247350913/finances";
@@ -12,7 +11,6 @@ type ProfileSection = "identity" | "update" | "about";
 
 export function Profile() {
   const navigate = useNavigate();
-  const isCustomAuth = authClient.mode === "custom";
 
   const [isLoading, setIsLoading] = useState(true);
   const [isProfileSaving, setIsProfileSaving] = useState(false);
@@ -43,38 +41,22 @@ export function Profile() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      if (isCustomAuth) {
-        const session = await authClient.getSession();
-        if (!session) throw new Error("Please sign in again.");
+      const session = await authClient.getSession();
+      if (!session) throw new Error("Please sign in again.");
 
-        const nextMetadata: Metadata = {
-          username: session.username ?? "",
-          display_name: "",
-          birth_date: session.birthDate ?? "",
-          profile_photo_url: "",
-        };
-
-        setMetadata(nextMetadata);
-        setEmail(session.email ?? "");
-        setUsername(session.username ?? "");
-        setDisplayName("");
-        setBirthday(session.birthDate ?? "");
-        setPhotoUrl("");
-        return;
-      }
-
-      const { data, error } = await supabase.auth.getUser();
-      if (error) throw error;
-      if (!data.user) throw new Error("Please sign in again.");
-
-      const nextMetadata = (data.user.user_metadata ?? {}) as Metadata;
+      const nextMetadata: Metadata = {
+        username: session.username ?? "",
+        display_name: "",
+        birth_date: session.birthDate ?? "",
+        profile_photo_url: "",
+      };
 
       setMetadata(nextMetadata);
-      setEmail(data.user.email ?? "");
-      setUsername(typeof nextMetadata.username === "string" ? nextMetadata.username : "");
-      setDisplayName(typeof nextMetadata.display_name === "string" ? nextMetadata.display_name : "");
-      setBirthday(typeof nextMetadata.birth_date === "string" ? nextMetadata.birth_date : "");
-      setPhotoUrl(typeof nextMetadata.profile_photo_url === "string" ? nextMetadata.profile_photo_url : "");
+      setEmail(session.email ?? "");
+      setUsername(session.username ?? "");
+      setDisplayName("");
+      setBirthday(session.birthDate ?? "");
+      setPhotoUrl("");
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load profile.");
@@ -86,15 +68,10 @@ export function Profile() {
   async function saveMetadata(patch: Metadata, successText: string) {
     const merged = { ...metadata, ...patch };
 
-    if (isCustomAuth) {
-      await authClient.updateProfile({
-        username: String(merged.username ?? ""),
-        birthDate: String(merged.birth_date ?? "") || null,
-      });
-    } else {
-      const { error } = await supabase.auth.updateUser({ data: merged });
-      if (error) throw error;
-    }
+    await authClient.updateProfile({
+      username: String(merged.username ?? ""),
+      birthDate: String(merged.birth_date ?? "") || null,
+    });
 
     setMetadata(merged);
     setStatusMessage(successText);
@@ -154,12 +131,7 @@ export function Profile() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      if (isCustomAuth) {
-        await authClient.changePassword(newPassword);
-      } else {
-        const { error } = await supabase.auth.updateUser({ password: newPassword });
-        if (error) throw error;
-      }
+      await authClient.changePassword(newPassword);
 
       setNewPassword("");
       setConfirmPassword("");
@@ -193,7 +165,7 @@ export function Profile() {
 
   async function handleDeleteAccount() {
     const shouldContinue = window.confirm(
-      `Delete your account permanently? This cannot be undone and will remove your login from ${isCustomAuth ? "custom auth" : "Supabase Auth"}.`
+      "Delete your account permanently? This cannot be undone."
     );
     if (!shouldContinue) return;
 
@@ -208,32 +180,7 @@ export function Profile() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      if (isCustomAuth) {
-        await authClient.deleteAccount();
-      } else {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-
-        const accessToken = sessionData.session?.access_token;
-        if (!accessToken) {
-          throw new Error("Please sign in again before deleting your account.");
-        }
-
-        const response = await fetch(apiUrl("/api/account/delete"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.message ?? "Could not delete account.");
-        }
-
-        await supabase.auth.signOut();
-      }
+      await authClient.deleteAccount();
 
       navigate("/", { replace: true });
     } catch (err: any) {
