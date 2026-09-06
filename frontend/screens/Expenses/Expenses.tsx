@@ -909,11 +909,13 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
 
       const nextAccountMap = new Map<string, ParsedStatementSummary>();
       for (const [monthKey, summary] of accountMap.entries()) {
-        const groups = summary.groups.filter((group) => {
-          if (vendorFilterSet.size === 0) return true;
-          return vendorFilterSet.has(group.description);
-        });
-        if (groups.length === 0) continue;
+        const groups = vendorFilterSet.size > 0
+          ? summary.groups.filter((group) => vendorFilterSet.has(group.description))
+          : summary.groups;
+
+        // Only drop the month when vendor filtering removed everything; a genuinely
+        // zero-expense month (empty summary.groups) should still be shown as $0.
+        if (vendorFilterSet.size > 0 && groups.length === 0) continue;
 
         nextAccountMap.set(monthKey, {
           total: groups.reduce((sum, group) => sum + group.amount, 0),
@@ -1224,6 +1226,9 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
                                     <div className={styles.readAccountTotal}>{formatAccountSubtotal(summary.total, amountDisplayMode)}</div>
                                   </div>
                                   <ul className={styles.accountItemList}>
+                                    {summary.groups.length === 0 && (
+                                      <li className={styles.readMonthMoreRow}>No expenses this month.</li>
+                                    )}
                                     {summary.groups.slice(0, PREVIEW_GROUP_LIMIT).map((group, index) => (
                                       <li key={`${account.id}-${monthKey}-${index}`}>
                                         <div className={styles.groupSummaryRow}>
@@ -1530,42 +1535,46 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
                       <strong>{formatAmount(parserTestResult.total)}</strong>
                     </div>
 
-                    <table className={styles.parserTestTable}>
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Cost</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {parserTestResult.groups.map((group, index) => {
-                          const isExpandable = group.transactions.length > 1;
+                    {parserTestResult.groups.length === 0 ? (
+                      <p className={styles.emptyState}>No expenses this month.</p>
+                    ) : (
+                      <table className={styles.parserTestTable}>
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parserTestResult.groups.map((group, index) => {
+                            const isExpandable = group.transactions.length > 1;
 
-                          return (
-                            <tr key={`${group.description}-${index}`}>
-                              <td>
-                                {isExpandable ? (
-                                  <details className={styles.parserTestDetails}>
-                                    <summary>{group.description}</summary>
-                                    <ul className={styles.parserTestDetailList}>
-                                      {group.transactions.map((transaction, transactionIndex) => (
-                                        <li key={`${group.description}-${transactionIndex}`}>
-                                          <span>{transaction.description}</span>
-                                          <span>{formatAmount(transaction.amount)}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </details>
-                                ) : (
-                                  group.description
-                                )}
-                              </td>
-                              <td>{formatAmount(group.amount)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                            return (
+                              <tr key={`${group.description}-${index}`}>
+                                <td>
+                                  {isExpandable ? (
+                                    <details className={styles.parserTestDetails}>
+                                      <summary>{group.description}</summary>
+                                      <ul className={styles.parserTestDetailList}>
+                                        {group.transactions.map((transaction, transactionIndex) => (
+                                          <li key={`${group.description}-${transactionIndex}`}>
+                                            <span>{transaction.description}</span>
+                                            <span>{formatAmount(transaction.amount)}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </details>
+                                  ) : (
+                                    group.description
+                                  )}
+                                </td>
+                                <td>{formatAmount(group.amount)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 )}
               </div>
@@ -1763,6 +1772,9 @@ export function ExpensesView({ mode }: { mode: ExpensesMode }) {
                       <div className={styles.readAccountTotal}>{formatAccountSubtotal(summary.total, amountDisplayMode)}</div>
                     </div>
                     <ul className={`${styles.accountItemList} ${styles.readMonthDetailList}`}>
+                      {summary.groups.length === 0 && (
+                        <li className={styles.readMonthMoreRow}>No expenses this month.</li>
+                      )}
                       {summary.groups.map((group, index) => (
                         <li key={`${account.id}-${readMonthDetailMonthKey}-modal-${index}`}>
                           {(() => {
@@ -2203,8 +2215,7 @@ function normalizeParserTestSummary(value: any): ParsedStatementSummary | null {
     .filter((group) => Math.abs(group.amount) > 0.00001)
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
-  if (groups.length === 0) return null;
-
+  // An empty groups[] here is a valid zero-expense result, not an unsupported format.
   return {
     total: groups.reduce((sum, item) => sum + item.amount, 0),
     groups,
@@ -2390,11 +2401,11 @@ function coerceParsedSummary(value: any): ParsedStatementSummary | null {
     };
   }
 
-  const legacyItems = Array.isArray(value.items)
-    ? value.items
-    : Array.isArray(value.expenses)
-      ? value.expenses
-      : [];
+  // Presence of the array (even empty) means the format is supported and the result is a valid zero-expense month.
+  const hasLegacyExpensesArray = Array.isArray(value.items) || Array.isArray(value.expenses);
+  if (!hasLegacyExpensesArray) return null;
+
+  const legacyItems = Array.isArray(value.items) ? value.items : value.expenses;
 
   const items = legacyItems
     .map((item: any) => ({
@@ -2402,8 +2413,6 @@ function coerceParsedSummary(value: any): ParsedStatementSummary | null {
       amount: Number(item?.amount ?? 0),
     }))
     .filter((item: ParsedExpenseItem) => item.description.length > 0 && Number.isFinite(item.amount) && item.amount !== 0);
-
-  if (items.length === 0) return null;
 
   const groups = mergeGroupedExpenses([], items.map((item: ParsedExpenseItem) => ({
     description: item.description,
