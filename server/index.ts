@@ -70,16 +70,26 @@ type AuthenticatedUser = {
   email: string;
 };
 
-// auth-service owns sessions; this only checks the token it signed for us and trusts its
-// claims (sub/email) without a local users table. A token stays valid until it expires
-// (JWT_EXPIRES_IN in auth-service) even if the user later changes their password there.
+// auth-service issues the token, but users now live in this same Neon database (see
+// database/schema.sql), so we can check auth_version here for immediate revocation
+// (e.g. right after a password change) instead of trusting the token until it expires.
 async function getAuthenticatedUserFromCookie(req: express.Request): Promise<AuthenticatedUser | null> {
   const token = req.cookies?.[authCookieName] as string | undefined;
   if (!token) return null;
 
   try {
     const payload = verifyAuthToken(token);
-    return { id: payload.sub, email: payload.email };
+    const result = await db.query<{ id: string; email: string; auth_version: number }>(
+      "select id, email, auth_version from public.users where id = $1 limit 1",
+      [payload.sub]
+    );
+
+    const user = result.rows[0] ?? null;
+    if (!user || user.auth_version !== payload.tokenVersion) {
+      return null;
+    }
+
+    return { id: user.id, email: user.email };
   } catch {
     return null;
   }
