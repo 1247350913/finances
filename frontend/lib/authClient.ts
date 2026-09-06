@@ -1,5 +1,8 @@
-import { apiUrl } from "./api";
+import { authUrl } from "./api";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
+
+// auth-service is a shared service for all apps; each request must say which tenant it is.
+const APP_ID = "finances";
 
 export type AppAuthSession = {
   authenticated: true;
@@ -46,11 +49,12 @@ function normalizeError(payload: any, fallback: string): Error {
 }
 
 async function fetchAuth(path: string, init: RequestInit = {}) {
-  const response = await fetch(apiUrl(`/api/auth${path}`), {
+  const response = await fetch(authUrl(`/auth${path}`), {
     ...init,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      "X-App-Id": APP_ID,
       ...(init.headers ?? {}),
     },
   });
@@ -65,9 +69,10 @@ async function fetchAuth(path: string, init: RequestInit = {}) {
 
 async function getCustomSession(): Promise<AppAuthSession | null> {
   try {
-    const response = await fetch(apiUrl("/api/auth/session"), {
+    const response = await fetch(authUrl("/auth/session"), {
       method: "GET",
       credentials: "include",
+      headers: { "X-App-Id": APP_ID },
     });
 
     if (response.status === 401) {
@@ -240,6 +245,39 @@ export const authClient = {
 
     const { error } = await supabase.auth.signOut();
     if (error) throw new Error(error.message);
+    notifyAuthChanged();
+  },
+
+  async updateProfile(patch: { username?: string; birthDate?: string | null }): Promise<AppAuthSession> {
+    if (AUTH_MODE !== "custom") {
+      throw new Error("updateProfile is only available in custom auth mode.");
+    }
+
+    const payload = await fetchAuth("/profile", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    notifyAuthChanged();
+    return payload.session as AppAuthSession;
+  },
+
+  async changePassword(password: string): Promise<void> {
+    if (AUTH_MODE !== "custom") {
+      throw new Error("changePassword is only available in custom auth mode.");
+    }
+
+    await fetchAuth("/account/password", {
+      method: "PATCH",
+      body: JSON.stringify({ password }),
+    });
+  },
+
+  async deleteAccount(): Promise<void> {
+    if (AUTH_MODE !== "custom") {
+      throw new Error("deleteAccount is only available in custom auth mode.");
+    }
+
+    await fetchAuth("/account", { method: "DELETE" });
     notifyAuthChanged();
   },
 };

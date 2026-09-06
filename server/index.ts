@@ -9,9 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "./lib/db";
-import { authRouter, formatDateOnly } from "./auth/router";
-import { authConfig } from "./lib/authConfig";
-import { verifyAuthToken } from "./auth/token";
+import { authCookieName, verifyAuthToken } from "./lib/authVerify";
 
 loadEnv({ path: ".env.development" });
 loadEnv();
@@ -46,7 +44,6 @@ app.use(
 );
 app.use(cookieParser());
 app.use(express.json({ limit: "25mb" }));
-app.use("/api/auth", authRouter);
 
 async function initDb() {
   try {
@@ -57,10 +54,6 @@ async function initDb() {
     await db.query(`
       alter table public.entry_accounts
       add column if not exists is_debt boolean not null default false;
-    `);
-    await db.query(`
-      alter table public.users
-      add column if not exists birth_date date;
     `);
   } catch (err) {
     console.warn("Could not check/migrate entry schema:", err);
@@ -75,26 +68,18 @@ app.get("/api/health", (_req, res) => {
 type AuthenticatedUser = {
   id: string;
   email: string;
-  auth_version: number;
 };
 
+// auth-service owns sessions; this only checks the token it signed for us and trusts its
+// claims (sub/email) without a local users table. A token stays valid until it expires
+// (JWT_EXPIRES_IN in auth-service) even if the user later changes their password there.
 async function getAuthenticatedUserFromCookie(req: express.Request): Promise<AuthenticatedUser | null> {
-  const token = req.cookies?.[authConfig.cookieName] as string | undefined;
+  const token = req.cookies?.[authCookieName] as string | undefined;
   if (!token) return null;
 
   try {
     const payload = verifyAuthToken(token);
-    const result = await db.query<AuthenticatedUser>(
-      "select id, email, auth_version from public.users where id = $1 limit 1",
-      [payload.sub]
-    );
-
-    const user = result.rows[0] ?? null;
-    if (!user || user.auth_version !== payload.tokenVersion) {
-      return null;
-    }
-
-    return user;
+    return { id: payload.sub, email: payload.email };
   } catch {
     return null;
   }
@@ -108,7 +93,7 @@ app.get("/api/overview", async (req, res) => {
       return;
     }
 
-    const [groupsResult, accountsResult, valuesResult, settingsResult, userResult] = await Promise.all([
+    const [groupsResult, accountsResult, valuesResult, settingsResult] = await Promise.all([
       db.query("select id, name from public.entry_groups where user_id = $1 order by position asc", [user.id]),
       db.query("select id, group_id, name, coin_symbol, is_debt from public.entry_accounts where user_id = $1 order by position asc", [user.id]),
       db.query("select account_id, year, value, conversion_rate from public.entry_account_values where user_id = $1 order by year asc", [user.id]),
@@ -116,7 +101,6 @@ app.get("/api/overview", async (req, res) => {
         "select start_year, end_year, overview_widgets, overview_chart_settings, overview_caption_md from public.entry_settings where user_id = $1 limit 1",
         [user.id]
       ),
-      db.query<{ birth_date: string | null }>("select birth_date from public.users where id = $1 limit 1", [user.id]),
     ]);
 
     res.json({
@@ -126,7 +110,6 @@ app.get("/api/overview", async (req, res) => {
         accounts: accountsResult.rows,
         values: valuesResult.rows,
         settings: settingsResult.rows[0] ?? null,
-        birth_date: formatDateOnly(userResult.rows[0]?.birth_date ?? null),
       },
     });
   } catch (error: any) {

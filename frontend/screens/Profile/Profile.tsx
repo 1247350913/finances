@@ -87,18 +87,10 @@ export function Profile() {
     const merged = { ...metadata, ...patch };
 
     if (isCustomAuth) {
-      const response = await fetch(apiUrl("/api/auth/profile"), {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: String(merged.username ?? ""),
-          birth_date: String(merged.birth_date ?? ""),
-        }),
+      await authClient.updateProfile({
+        username: String(merged.username ?? ""),
+        birthDate: String(merged.birth_date ?? "") || null,
       });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error ?? payload?.message ?? "Could not update profile.");
     } else {
       const { error } = await supabase.auth.updateUser({ data: merged });
       if (error) throw error;
@@ -163,15 +155,7 @@ export function Profile() {
       setStatusMessage(null);
 
       if (isCustomAuth) {
-        const response = await fetch(apiUrl("/api/auth/password"), {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: newPassword }),
-        });
-
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload?.error ?? payload?.message ?? "Could not update password.");
+        await authClient.changePassword(newPassword);
       } else {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) throw error;
@@ -224,35 +208,30 @@ export function Profile() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      const response = isCustomAuth
-        ? await fetch(apiUrl("/api/auth/account"), {
-            method: "DELETE",
-            credentials: "include",
-          })
-        : await (async () => {
-            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-            if (sessionError) throw sessionError;
+      if (isCustomAuth) {
+        await authClient.deleteAccount();
+      } else {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
 
-            const accessToken = sessionData.session?.access_token;
-            if (!accessToken) {
-              throw new Error("Please sign in again before deleting your account.");
-            }
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) {
+          throw new Error("Please sign in again before deleting your account.");
+        }
 
-            return fetch(apiUrl("/api/account/delete"), {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-              },
-            });
-          })();
+        const response = await fetch(apiUrl("/api/account/delete"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
 
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload?.message ?? "Could not delete account.");
-      }
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload?.message ?? "Could not delete account.");
+        }
 
-      if (!isCustomAuth) {
         await supabase.auth.signOut();
       }
 

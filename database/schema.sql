@@ -1,5 +1,8 @@
 -- Neon starter schema (no Supabase auth/RLS dependencies)
 -- Safe to run on a fresh Neon database.
+-- Users/auth live in the separate auth-service, not here. user_id columns below are
+-- opaque uuids issued by auth-service — there is no local FK to enforce, and deleting a
+-- user there does not cascade-delete rows here.
 
 create extension if not exists pgcrypto;
 
@@ -13,41 +16,9 @@ begin
 end;
 $$;
 
-create table if not exists public.users (
-  id uuid primary key default gen_random_uuid(),
-  email text not null unique,
-  username text unique,
-  password_hash text not null,
-  email_verified boolean not null default false,
-  verify_otp_hash text,
-  verify_otp_expires_at timestamptz,
-  reset_otp_hash text,
-  reset_otp_expires_at timestamptz,
-  auth_version integer not null default 0,
-  birth_date date,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_users_email on public.users (email);
-create index if not exists idx_users_username on public.users (username);
-
-drop trigger if exists users_set_updated_at on public.users;
-create trigger users_set_updated_at
-before update on public.users
-for each row
-execute procedure public.set_updated_at_timestamp();
-
-create table if not exists public.profiles (
-  id uuid primary key references public.users(id) on delete cascade,
-  email text,
-  username text unique,
-  created_at timestamptz default now()
-);
-
 create table if not exists public.accounts (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id uuid not null,
   name text not null,
   institution text,
   account_type text,
@@ -60,7 +31,7 @@ create table if not exists public.accounts (
 
 create table if not exists public.entry_groups (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id uuid not null,
   name text not null,
   position integer not null default 0,
   created_at timestamptz default now()
@@ -68,7 +39,7 @@ create table if not exists public.entry_groups (
 
 create table if not exists public.entry_accounts (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id uuid not null,
   group_id uuid not null references public.entry_groups(id) on delete cascade,
   name text not null,
   coin_symbol text,
@@ -79,7 +50,7 @@ create table if not exists public.entry_accounts (
 
 create table if not exists public.entry_account_values (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id uuid not null,
   account_id uuid not null references public.entry_accounts(id) on delete cascade,
   year integer not null,
   value text not null,
@@ -90,7 +61,7 @@ create table if not exists public.entry_account_values (
 
 create table if not exists public.account_statements (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id uuid not null,
   account_id uuid not null references public.accounts(id) on delete cascade,
   statement_date date not null,
   file_name text not null,
@@ -101,7 +72,7 @@ create table if not exists public.account_statements (
 );
 
 create table if not exists public.entry_settings (
-  user_id uuid primary key references public.users(id) on delete cascade,
+  user_id uuid primary key,
   start_year integer,
   end_year integer,
   overview_widgets jsonb,
@@ -126,3 +97,4 @@ create trigger entry_settings_set_updated_at
 before update on public.entry_settings
 for each row
 execute procedure public.set_updated_at_timestamp();
+
