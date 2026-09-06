@@ -1,5 +1,14 @@
--- Neon starter schema (no Supabase auth/RLS dependencies)
--- Safe to run on a fresh Neon database.
+-- Finances Neon schema (fresh, single source of truth — no incremental migrations).
+-- Run this directly on a fresh Neon database, for both dev and prod branches.
+--
+-- Users/auth are managed by the shared auth-service (see ../../auth-service), but that
+-- service is configured to store this app's users in THIS SAME Neon database (its
+-- NEON_URI_FINANCES must equal this app's DATABASE_URL), so user data stays app-specific
+-- rather than living in some separate shared auth database. auth-service creates the
+-- users / user_app_blobs / user_app_settings tables itself on first connect via
+-- `CREATE TABLE IF NOT EXISTS`; they're declared here too so a fresh database is fully
+-- usable (with real FKs from finances' own tables) before auth-service ever connects.
+-- If you change user columns, keep this in sync with auth-service's src/store/postgres.ts.
 
 create extension if not exists pgcrypto;
 
@@ -13,37 +22,48 @@ begin
 end;
 $$;
 
+-- ── auth-service tables (owned by auth-service, mirrored here for FKs) ───────────────
+
 create table if not exists public.users (
-  id uuid primary key default gen_random_uuid(),
-  email text not null unique,
-  username text unique,
-  password_hash text not null,
-  email_verified boolean not null default false,
-  verify_otp_hash text,
+  id                    uuid primary key default gen_random_uuid(),
+  email                 text not null,
+  username              text,
+  birth_date            date,
+  password_hash         text not null,
+  email_verified        boolean not null default false,
+  verify_otp_hash       text,
   verify_otp_expires_at timestamptz,
-  reset_otp_hash text,
-  reset_otp_expires_at timestamptz,
-  auth_version integer not null default 0,
-  birth_date date,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  reset_otp_hash        text,
+  reset_otp_expires_at  timestamptz,
+  auth_version          integer not null default 0,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
 );
 
-create index if not exists idx_users_email on public.users (email);
-create index if not exists idx_users_username on public.users (username);
+create unique index if not exists users_email_key on public.users (email);
+create unique index if not exists users_username_key on public.users (username) where username is not null;
 
-drop trigger if exists users_set_updated_at on public.users;
-create trigger users_set_updated_at
-before update on public.users
-for each row
-execute procedure public.set_updated_at_timestamp();
-
-create table if not exists public.profiles (
-  id uuid primary key references public.users(id) on delete cascade,
-  email text,
-  username text unique,
-  created_at timestamptz default now()
+create table if not exists public.user_app_blobs (
+  user_id          uuid not null references public.users(id) on delete cascade,
+  app_id           text not null,
+  encryption_salt  text not null,
+  blob_iv          text not null,
+  blob_tag         text not null,
+  blob_ciphertext  text not null,
+  blob_version     integer not null default 1,
+  updated_at       timestamptz not null default now(),
+  primary key (user_id, app_id)
 );
+
+create table if not exists public.user_app_settings (
+  user_id      uuid not null references public.users(id) on delete cascade,
+  app_id       text not null,
+  content_root text,
+  updated_at   timestamptz not null default now(),
+  primary key (user_id, app_id)
+);
+
+-- ── finances' own tables ──────────────────────────────────────────────────────────────
 
 create table if not exists public.accounts (
   id uuid primary key default gen_random_uuid(),
@@ -126,3 +146,4 @@ create trigger entry_settings_set_updated_at
 before update on public.entry_settings
 for each row
 execute procedure public.set_updated_at_timestamp();
+

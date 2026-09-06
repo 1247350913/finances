@@ -375,7 +375,10 @@ export function Overview() {
         accounts = (payload?.data?.accounts ?? []) as EntryAccountRow[];
         values = (payload?.data?.values ?? []) as EntryValueRow[];
         settingsRow = (payload?.data?.settings ?? undefined) as Record<string, any> | undefined;
-        birthDateValue = payload?.data?.birth_date ?? null;
+
+        // birth_date now lives with auth-service, not finances-api's own overview payload.
+        const session = await authClient.getSession();
+        birthDateValue = session?.birthDate ?? null;
       } else {
         const { data: userData, error: userError } = await supabase.auth.getUser();
         if (userError) throw userError;

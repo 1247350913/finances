@@ -18,19 +18,26 @@ Vite uses `.env.development` for `pnpm dev` and production env variables for pro
 
 ## Schema strategy
 
-- Use `database/schema.sql` as the single Neon starter schema for fresh databases.
-- This file is Supabase-free and can be run directly in Neon SQL runner.
+- `database/schema.sql` is the single source of truth. There are no incremental migration
+  files — run the full file fresh on dev and prod whenever the schema changes.
+- This file includes the `users` / `user_app_blobs` / `user_app_settings` tables that
+  auth-service also creates on connect (`CREATE TABLE IF NOT EXISTS`). Auth-service's
+  `NEON_URI_FINANCES` env var must point at THIS SAME database (not a separate one), so
+  user/profile data stays app-specific instead of living in some shared auth database.
+  If you change user columns here, mirror the change in auth-service's
+  `src/store/postgres.ts`.
 
 ## Fresh database bootstrap
 
-1. Open Neon SQL editor on DEV branch.
+1. Open Neon SQL editor on the target branch (dev or prod).
 2. Run the full `database/schema.sql` file.
-3. Start the app and verify auth + core flows.
-4. Repeat on PROD branch when ready.
+3. Point auth-service's `NEON_URI_FINANCES` at the same connection string as this app's
+   `DATABASE_URL`.
+4. Start the app and verify auth + core flows.
 
 ## Ongoing updates
 
-- Keep editing `database/schema.sql` as the canonical schema.
-- When you need strict audit/history later, re-introduce migrations from this clean baseline.
+- Keep editing `database/schema.sql` directly (it's idempotent — `create table if not
+  exists` / `create index if not exists`) and re-run it on each environment.
 
 Avoid destructive statements in production unless intentionally performing maintenance.
