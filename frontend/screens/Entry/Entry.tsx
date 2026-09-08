@@ -801,9 +801,7 @@ export function Entry() {
         </Link>
         <Link className={styles.subnavLink} to="/overview">Overview</Link>
         <Link className={styles.subnavLink} to="/expenses">Expenses</Link>
-        <Link className={styles.profileLink} to="/profile" aria-label="Profile">
-          <img className={styles.profileIcon} src={ASSETS.defaultProfileIcon} alt="" aria-hidden="true" />
-        </Link>
+        <Link className={styles.profileLink} to="/profile">Profile</Link>
       </header>
 
       <main className={styles.content}>
@@ -898,7 +896,7 @@ export function Entry() {
                         handleGroupDrop(group.id);
                       }}
                     >
-                      <td colSpan={displayYears.length + 1}>
+                      <td>
                         <div className={styles.groupEditor}>
                           <div className={styles.groupEditorLeft}>
                             <button
@@ -916,14 +914,23 @@ export function Entry() {
                               onChange={(event) => updateGroupName(group.id, event.target.value)}
                               aria-label="Section name"
                             />
+                            <div className={styles.groupActions}>
+                              <button type="button" onClick={() => addAccount(group.id)}>Add Account</button>
+                              <button
+                                type="button"
+                                className={styles.removeGroupButton}
+                                onClick={() => removeGroup(group.id)}
+                                aria-label={`Remove section ${group.name || "untitled section"}`}
+                                title="Remove section"
+                              >
+                                x
+                              </button>
+                            </div>
                           </div>
 
-                          <div className={styles.groupActions}>
-                            <button type="button" onClick={() => addAccount(group.id)}>Add Account</button>
-                            <button type="button" onClick={() => removeGroup(group.id)}>Remove Section</button>
-                          </div>
                         </div>
                       </td>
+                      {displayYears.map((year) => <td key={`${group.id}-${year}`} />)}
                     </tr>
                   ) : (
                     <tr className={styles.groupRow}>

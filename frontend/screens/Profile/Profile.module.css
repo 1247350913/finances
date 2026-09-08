@@ -182,12 +182,10 @@
 }
 
 .identityPhotoWrap {
-  display: flex;
-  justify-content: center;
-  align-items: center;
   border: 1px solid var(--border);
   border-radius: 14px;
-  min-height: 220px;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
   background: #fafafa;
 }
 
@@ -267,10 +265,9 @@
 }
 
 .avatarPreview {
-  width: 112px;
-  height: 112px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   background: #f0f0f0;
 }
@@ -401,12 +398,4 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .identityPhotoWrap {
-    min-height: 120px;
-  }
-
-  .avatarPreview {
-    width: 84px;
-    height: 84px;
-  }
 }

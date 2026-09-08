@@ -48,7 +48,7 @@ export function Profile() {
         username: session.username ?? "",
         display_name: "",
         birth_date: session.birthDate ?? "",
-        profile_photo_url: "",
+        profile_photo_url: session.profilePhotoUrl ?? "",
       };
 
       setMetadata(nextMetadata);
@@ -56,7 +56,7 @@ export function Profile() {
       setUsername(session.username ?? "");
       setDisplayName("");
       setBirthday(session.birthDate ?? "");
-      setPhotoUrl("");
+      setPhotoUrl(session.profilePhotoUrl ?? "");
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load profile.");
@@ -71,6 +71,7 @@ export function Profile() {
     await authClient.updateProfile({
       username: String(merged.username ?? ""),
       birthDate: String(merged.birth_date ?? "") || null,
+      profilePhotoUrl: String(merged.profile_photo_url ?? "") || null,
     });
 
     setMetadata(merged);
@@ -105,7 +106,12 @@ export function Profile() {
     if (!file) return;
     try {
       setErrorMessage(null);
-      const dataUrl = await readFileAsDataUrl(file);
+      // Raw uploads (e.g. phone camera or AI-generated images) can be several MB as a data
+      // URL, well past what the auth API accepts, so always downscale before storing it.
+      const dataUrl = await resizeImageToDataUrl(file);
+      if (dataUrl.length > MAX_PHOTO_DATA_URL_LENGTH) {
+        throw new Error("That image is too large even after resizing. Try a smaller photo.");
+      }
       setPhotoUrl(dataUrl);
     } catch (err: any) {
       console.error(err);
@@ -410,4 +416,34 @@ async function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(reader.error ?? new Error("Could not read file."));
     reader.readAsDataURL(file);
   });
+}
+
+// Keep in sync with auth-service's PATCH /profile cap on profilePhotoUrl.
+const MAX_PHOTO_DATA_URL_LENGTH = 700_000;
+const MAX_PHOTO_DIMENSION = 256;
+
+// Downscales to a small square-ish JPEG so a multi-MB camera/AI-generated photo doesn't
+// blow past the API's body size limit.
+async function resizeImageToDataUrl(file: File): Promise<string> {
+  const rawDataUrl = await readFileAsDataUrl(file);
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not decode image file."));
+    img.src = rawDataUrl;
+  });
+
+  const scale = Math.min(1, MAX_PHOTO_DIMENSION / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not process image file.");
+  ctx.drawImage(image, 0, 0, width, height);
+
+  return canvas.toDataURL("image/jpeg", 0.8);
 }

@@ -12,6 +12,8 @@ drop table if exists public.profiles cascade;
 drop table if exists public.user_app_settings cascade;
 drop table if exists public.user_app_blobs cascade;
 drop table if exists public.users cascade;
+drop table if exists public.profiles cascade;
+drop table if exists public.heartbeat cascade;
 
 -- Clean up any custom triggers/functions
 drop function if exists public.set_updated_at_timestamp cascade;

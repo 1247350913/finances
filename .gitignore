@@ -10,3 +10,6 @@ node_modules
 
 # cloud keys
 gcp-sa-key.json
+
+# build output
+dist/

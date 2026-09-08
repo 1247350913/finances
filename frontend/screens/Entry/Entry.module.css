@@ -29,7 +29,8 @@
 }
 
 .backLink,
-.subnavLink {
+.subnavLink,
+.profileLink {
 	border: 1px solid transparent;
 	border-radius: 999px;
 	padding: 6px 14px;
@@ -39,7 +40,8 @@
 }
 
 .backLink:hover,
-.subnavLink:hover {
+.subnavLink:hover,
+.profileLink:hover {
 	background: #f2f2f2;
 	border-color: #ececec;
 	transform: translateY(-1px);
@@ -47,13 +49,15 @@
 }
 
 .backLink:active,
-.subnavLink:active {
+.subnavLink:active,
+.profileLink:active {
 	transform: translateY(0) scale(0.985);
 	box-shadow: none;
 }
 
 .backLink:focus-visible,
-.subnavLink:focus-visible {
+.subnavLink:focus-visible,
+.profileLink:focus-visible {
 	outline: 2px solid #bdbdbd;
 	outline-offset: 2px;
 }
@@ -72,23 +76,10 @@
 }
 
 .profileLink {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
 	justify-self: end;
 	margin-right: 8px;
-	width: 34px;
-	height: 34px;
-	border-radius: 999px;
-	border: 1px solid var(--border);
-	background: #efefef;
-}
-
-.profileIcon {
-	width: 20px;
-	height: 20px;
-	object-fit: cover;
-	border-radius: 999px;
+	font-family: var(--serif);
+	font-size: clamp(16px, 4vw, 24px);
 }
 
 .content {
@@ -191,12 +182,12 @@
 
 .entryTable th:first-child {
 	text-align: left;
-	width: 280px;
-	min-width: 280px;
+	width: 380px;
+	min-width: 380px;
 }
 
 .entryTable td:first-child {
-	min-width: 280px;
+	min-width: 380px;
 }
 
 .accountHeader {
@@ -211,15 +202,15 @@
 
 .groupEditor {
 	display: flex;
-	justify-content: space-between;
 	align-items: center;
-	gap: 12px;
+	width: 100%;
 }
 
 .groupEditorLeft {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: 8px;
+	width: 100%;
 	min-width: 0;
 }
 
@@ -264,13 +255,28 @@
 }
 
 .groupEditor input {
-	max-width: 280px;
+	flex: 1;
+	min-width: 0;
 	font-weight: 600;
 }
 
 .groupActions {
 	display: flex;
-	gap: 8px;
+	align-items: center;
+	gap: 4px;
+	flex: 0 0 auto;
+}
+
+.groupActions button {
+	height: 26px;
+	padding: 0 8px;
+	font-size: 12px;
+	line-height: 1;
+}
+
+.removeGroupButton {
+	min-width: 26px;
+	padding: 0 6px !important;
 }
 
 .dragHandle {
@@ -348,8 +354,9 @@
 }
 
 .accountCellEditing .accountNameEditor {
-	width: auto;
-	margin-right: auto;
+	flex: 0 1 197px;
+	max-width: 197px;
+	margin-right: 0;
 }
 
 .accountNameEditor > input {
@@ -360,9 +367,8 @@
 }
 
 .accountCellEditing .accountNameEditor > input {
-	width: 12ch;
-	min-width: 12ch;
-	field-sizing: content;
+	width: 100%;
+	min-width: 0;
 }
 
 .accountActions {
