@@ -18,24 +18,33 @@
   text-decoration: none;
 }
 
-.profileBadgeLink {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: #efefef;
+.profileTextLink {
+  font-family: var(--serif);
+  font-size: 24px;
+  color: var(--ink);
   text-decoration: none;
-  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: transparent;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
 
-.profileBadgeIcon {
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  object-fit: cover;
+.profileTextLink:hover {
+  background: #f2f2f2;
+  border-color: #ececec;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+.profileTextLink:active {
+  transform: translateY(0) scale(0.985);
+  box-shadow: none;
+}
+
+.profileTextLink:focus-visible {
+  outline: 2px solid #bdbdbd;
+  outline-offset: 2px;
 }
 
 .flagButton {
