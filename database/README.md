@@ -20,12 +20,12 @@ Vite uses `.env.development` for `pnpm dev` and production env variables for pro
 
 - `database/schema.sql` is the single source of truth. There are no incremental migration
   files — run the full file fresh on dev and prod whenever the schema changes.
-- This file includes the `users` / `user_app_blobs` / `user_app_settings` tables that
-  auth-service also creates on connect (`CREATE TABLE IF NOT EXISTS`). Auth-service's
-  `NEON_URI_FINANCES` env var must point at THIS SAME database (not a separate one), so
-  user/profile data stays app-specific instead of living in some shared auth database.
-  If you change user columns here, mirror the change in auth-service's
-  `src/store/postgres.ts`.
+- This file defines the shared `users` / `user_app_blobs` / `user_app_settings` tables
+  in this project's Neon database. Auth-service uses these tables and may bootstrap
+  them on connect (`CREATE TABLE IF NOT EXISTS`), but it does not have a separate
+  database for this app. Auth-service's `NEON_URI_FINANCES` env var must point at THIS
+  SAME database, so user/profile data stays app-specific. If you change user columns
+  here, mirror the change in auth-service's `src/store/postgres.ts`.
 
 ## Fresh database bootstrap
 

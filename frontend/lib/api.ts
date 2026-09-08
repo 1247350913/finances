@@ -2,9 +2,8 @@
 // In prod (Cloudflare Pages), VITE_API_BASE_URL should point at the deployed backend origin.
 // Normalize it to reduce errors from missing schemes, trailing slashes, or mixed-content http URLs.
 const API_BASE = normalizeApiBase(import.meta.env.VITE_API_BASE_URL);
-// Base URL of the shared auth-service (auth.lnks.info in prod). Auth requests go straight
-// there instead of through this app's own backend.
-const AUTH_BASE = normalizeApiBase(import.meta.env.VITE_AUTH_BASE_URL);
+// Use Vite's same-origin proxy during development so auth cookies work on localhost.
+const AUTH_BASE = import.meta.env.DEV ? "" : normalizeApiBase(import.meta.env.VITE_AUTH_BASE_URL);
 
 function normalizeApiBase(rawValue: string | undefined): string {
   const raw = String(rawValue ?? "").trim();

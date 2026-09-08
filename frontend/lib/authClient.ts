@@ -27,6 +27,30 @@ export type PasswordResetRequestResult = {
 };
 
 const AUTH_EVENT = "fin-auth-changed";
+const TAB_SESSION_KEY = "fin-authenticated-in-tab";
+
+function hasTabSession(): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return window.sessionStorage.getItem(TAB_SESSION_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function setTabSession(active: boolean): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (active) {
+      window.sessionStorage.setItem(TAB_SESSION_KEY, "true");
+    } else {
+      window.sessionStorage.removeItem(TAB_SESSION_KEY);
+    }
+  } catch {
+  }
+}
 
 function notifyAuthChanged() {
   if (typeof window !== "undefined") {
@@ -62,6 +86,8 @@ export const authClient = {
   eventName: AUTH_EVENT,
 
   async getSession(): Promise<AppAuthSession | null> {
+    if (!hasTabSession()) return null;
+
     try {
       const response = await fetch(authUrl("/auth/session"), {
         method: "GET",
@@ -70,6 +96,7 @@ export const authClient = {
       });
 
       if (response.status === 401) {
+        setTabSession(false);
         return null;
       }
 
@@ -89,6 +116,7 @@ export const authClient = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
+    setTabSession(true);
     notifyAuthChanged();
   },
 
@@ -139,8 +167,12 @@ export const authClient = {
   },
 
   async signOut(): Promise<void> {
-    await fetchAuth("/signout", { method: "POST" });
-    notifyAuthChanged();
+    try {
+      await fetchAuth("/signout", { method: "POST" });
+    } finally {
+      setTabSession(false);
+      notifyAuthChanged();
+    }
   },
 
   async updateProfile(patch: { username?: string; birthDate?: string | null }): Promise<AppAuthSession> {
@@ -161,6 +193,7 @@ export const authClient = {
 
   async deleteAccount(): Promise<void> {
     await fetchAuth("/account", { method: "DELETE" });
+    setTabSession(false);
     notifyAuthChanged();
   },
 };

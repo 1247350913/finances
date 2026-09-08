@@ -22,7 +22,7 @@ begin
 end;
 $$;
 
--- ── auth-service tables (owned by auth-service, mirrored here for FKs) ───────────────
+-- ── shared auth tables (defined here, used by auth-service) ─────────────────────────
 
 create table if not exists public.users (
   id                    uuid primary key default gen_random_uuid(),
