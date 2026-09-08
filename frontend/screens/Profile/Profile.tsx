@@ -48,7 +48,7 @@ export function Profile() {
         username: session.username ?? "",
         display_name: "",
         birth_date: session.birthDate ?? "",
-        profile_photo_url: "",
+        profile_photo_url: session.profilePhotoUrl ?? "",
       };
 
       setMetadata(nextMetadata);
@@ -56,7 +56,7 @@ export function Profile() {
       setUsername(session.username ?? "");
       setDisplayName("");
       setBirthday(session.birthDate ?? "");
-      setPhotoUrl("");
+      setPhotoUrl(session.profilePhotoUrl ?? "");
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message ?? "Could not load profile.");
@@ -71,6 +71,7 @@ export function Profile() {
     await authClient.updateProfile({
       username: String(merged.username ?? ""),
       birthDate: String(merged.birth_date ?? "") || null,
+      profilePhotoUrl: String(merged.profile_photo_url ?? "") || null,
     });
 
     setMetadata(merged);

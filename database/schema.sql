@@ -1,5 +1,5 @@
--- Finances Neon schema (fresh, single source of truth — no incremental migrations).
--- Run this directly on a fresh Neon database, for both dev and prod branches.
+-- Finances Neon schema (baseline). Run this directly on a fresh Neon database, for both
+-- dev and prod branches, then apply migrations/*.sql in order to bring it up to date.
 --
 -- Users/auth are managed by the shared auth-service (see ../../auth-service), but that
 -- service is configured to store this app's users in THIS SAME Neon database (its

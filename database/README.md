@@ -18,26 +18,29 @@ Vite uses `.env.development` for `pnpm dev` and production env variables for pro
 
 ## Schema strategy
 
-- `database/schema.sql` is the single source of truth. There are no incremental migration
-  files — run the full file fresh on dev and prod whenever the schema changes.
+- `database/schema.sql` is the baseline schema — run it fresh on a new dev or prod
+  database, then apply everything in `database/migrations/` in numeric order to bring
+  it up to date. Once live in prod, schema changes go into a new numbered migration
+  file rather than editing `schema.sql` directly.
 - This file defines the shared `users` / `user_app_blobs` / `user_app_settings` tables
   in this project's Neon database. Auth-service uses these tables and may bootstrap
   them on connect (`CREATE TABLE IF NOT EXISTS`), but it does not have a separate
   database for this app. Auth-service's `NEON_URI_FINANCES` env var must point at THIS
   SAME database, so user/profile data stays app-specific. If you change user columns
   here, mirror the change in auth-service's `src/store/postgres.ts`.
-
 ## Fresh database bootstrap
 
 1. Open Neon SQL editor on the target branch (dev or prod).
 2. Run the full `database/schema.sql` file.
-3. Point auth-service's `NEON_URI_FINANCES` at the same connection string as this app's
+3. Run every file in `database/migrations/` in numeric order (001, 002, ...).
+4. Point auth-service's `NEON_URI_FINANCES` at the same connection string as this app's
    `DATABASE_URL`.
-4. Start the app and verify auth + core flows.
+5. Start the app and verify auth + core flows.
 
 ## Ongoing updates
 
-- Keep editing `database/schema.sql` directly (it's idempotent — `create table if not
-  exists` / `create index if not exists`) and re-run it on each environment.
+- Add a new numbered file under `database/migrations/` for each schema change (e.g.
+  `002_...sql`) and run it against dev, verify, then run it against prod. Keep each
+  migration idempotent (`add column if not exists`, etc.) so re-running is safe.
 
 Avoid destructive statements in production unless intentionally performing maintenance.

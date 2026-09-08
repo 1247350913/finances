@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ASSETS } from "../../lib";
+import { ASSETS, authClient } from "../../lib";
 import styles from "./Header.module.css";
 
 type Props = {
@@ -8,7 +9,27 @@ type Props = {
 };
 
 export function Header({ homeLink = "/", iconVariant = "flag" }: Props) {
-  const iconSrc = iconVariant === "profile" ? ASSETS.defaultProfileIcon : ASSETS.flag;
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (iconVariant !== "profile") return;
+
+    let cancelled = false;
+
+    async function loadPhoto() {
+      const session = await authClient.getSession();
+      if (!cancelled) setProfilePhotoUrl(session?.profilePhotoUrl ?? null);
+    }
+
+    void loadPhoto();
+    window.addEventListener(authClient.eventName, loadPhoto);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(authClient.eventName, loadPhoto);
+    };
+  }, [iconVariant]);
+
+  const iconSrc = iconVariant === "profile" ? profilePhotoUrl || ASSETS.defaultProfileIcon : ASSETS.flag;
   const iconAlt = iconVariant === "profile" ? "" : "";
 
   return (

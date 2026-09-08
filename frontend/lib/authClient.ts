@@ -10,6 +10,7 @@ export type AppAuthSession = {
   username: string | null;
   emailVerified: boolean;
   birthDate?: string | null;
+  profilePhotoUrl?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -175,7 +176,7 @@ export const authClient = {
     }
   },
 
-  async updateProfile(patch: { username?: string; birthDate?: string | null }): Promise<AppAuthSession> {
+  async updateProfile(patch: { username?: string; birthDate?: string | null; profilePhotoUrl?: string | null }): Promise<AppAuthSession> {
     const payload = await fetchAuth("/profile", {
       method: "PATCH",
       body: JSON.stringify(patch),
