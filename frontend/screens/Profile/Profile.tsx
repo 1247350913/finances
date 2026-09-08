@@ -133,6 +133,7 @@ export function Profile() {
       setStatusMessage(null);
 
       await authClient.changePassword(newPassword);
+      await authClient.changePassword(newPassword);
 
       setNewPassword("");
       setConfirmPassword("");
@@ -181,6 +182,7 @@ export function Profile() {
       setErrorMessage(null);
       setStatusMessage(null);
 
+      await authClient.deleteAccount();
       await authClient.deleteAccount();
 
       navigate("/", { replace: true });
