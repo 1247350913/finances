@@ -106,7 +106,12 @@ export function Profile() {
     if (!file) return;
     try {
       setErrorMessage(null);
-      const dataUrl = await readFileAsDataUrl(file);
+      // Raw uploads (e.g. phone camera or AI-generated images) can be several MB as a data
+      // URL, well past what the auth API accepts, so always downscale before storing it.
+      const dataUrl = await resizeImageToDataUrl(file);
+      if (dataUrl.length > MAX_PHOTO_DATA_URL_LENGTH) {
+        throw new Error("That image is too large even after resizing. Try a smaller photo.");
+      }
       setPhotoUrl(dataUrl);
     } catch (err: any) {
       console.error(err);
@@ -132,7 +137,6 @@ export function Profile() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      await authClient.changePassword(newPassword);
       await authClient.changePassword(newPassword);
 
       setNewPassword("");
@@ -182,7 +186,6 @@ export function Profile() {
       setErrorMessage(null);
       setStatusMessage(null);
 
-      await authClient.deleteAccount();
       await authClient.deleteAccount();
 
       navigate("/", { replace: true });
@@ -413,4 +416,34 @@ async function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(reader.error ?? new Error("Could not read file."));
     reader.readAsDataURL(file);
   });
+}
+
+// Keep in sync with auth-service's PATCH /profile cap on profilePhotoUrl.
+const MAX_PHOTO_DATA_URL_LENGTH = 700_000;
+const MAX_PHOTO_DIMENSION = 256;
+
+// Downscales to a small square-ish JPEG so a multi-MB camera/AI-generated photo doesn't
+// blow past the API's body size limit.
+async function resizeImageToDataUrl(file: File): Promise<string> {
+  const rawDataUrl = await readFileAsDataUrl(file);
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not decode image file."));
+    img.src = rawDataUrl;
+  });
+
+  const scale = Math.min(1, MAX_PHOTO_DIMENSION / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not process image file.");
+  ctx.drawImage(image, 0, 0, width, height);
+
+  return canvas.toDataURL("image/jpeg", 0.8);
 }
