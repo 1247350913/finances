@@ -1,11 +1,25 @@
 import { useEffect, useMemo, useState, Fragment } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import rehypeRaw from "rehype-raw";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { Link } from "react-router-dom";
 import { Footer } from "../../components/Footer";
 import { ASSETS, apiUrl, authClient } from "../../lib";
 import styles from "./Overview.module.css";
+
+const markdownSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    "*": [
+      ...(defaultSchema.attributes["*"] ?? []),
+      "align",
+      ["style", /^(?:(?:text-align|color|font-size|font-weight|font-style|background-color|margin|padding)\s*:\s*[^;<>]+;?\s*)+$/i],
+    ],
+  },
+};
 
 type EntryGroupRow = {
   id: string;
@@ -1296,14 +1310,14 @@ export function Overview() {
                   />
                 ) : (
                   <div className={styles.captionText}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{markdownSource}</ReactMarkdown>
+                    <ReactMarkdown rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSchema]]} remarkPlugins={[remarkGfm, remarkBreaks]}>{markdownSource}</ReactMarkdown>
                   </div>
                 )}
               </div>
             </div>
           ) : (
             <div className={`${styles.captionText} ${styles.captionTextFlat}`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{markdownSource}</ReactMarkdown>
+              <ReactMarkdown rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSchema]]} remarkPlugins={[remarkGfm, remarkBreaks]}>{markdownSource}</ReactMarkdown>
             </div>
           )}
         </div>
