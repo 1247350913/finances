@@ -4,6 +4,10 @@
 
 A personal finance management platform for tracking expenses, monitoring account balances, organizing financial records, and visualizing financial history.
 
+## Demos
+
+- https://github.com/user-attachments/assets/d5305497-e3a4-4830-b83e-29300ea5460d
+
 ## Features
 
 - **Secure Authentication**: Email-based sign-up and login via the shared `auth-service`
